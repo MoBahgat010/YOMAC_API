@@ -27,7 +27,7 @@ SECRET_KEY = 'django-insecure-3gchw9tw3hsf)5+5o0)mi854b1&d_0$&m1sn_$!_c_xlz9zf+g
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['yomac.azurewebsites.net']
 
 import cloudinary
 import cloudinary.uploader
