@@ -25,7 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-3gchw9tw3hsf)5+5o0)mi854b1&d_0$&m1sn_$!_c_xlz9zf+g'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ['yomac.azurewebsites.net', '127.0.0.1', 'localhost']
 

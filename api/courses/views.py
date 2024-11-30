@@ -56,6 +56,7 @@ def decode_base64_to_file(base64_str):
     file = io.BytesIO(file_data)
     return file
 def convert_seconds_to_interval(seconds):
+    print("seconds: ", seconds)
     if isinstance(seconds, str):
         return seconds
     hours = seconds // 3600
@@ -782,6 +783,9 @@ def get_review_student_id(review_id):
             return cursor.fetchone()[0]
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+def get_users_data(data):
+    pass
 
 class CreateCourseView(APIView):
     authentication_classes = [CustomTokenAuthentication]
@@ -1539,13 +1543,26 @@ class GetUserTransactions(APIView):
     def get(self, request):
         try:
             with connection.cursor() as cursor:
+                is_student = True
                 if request.auth == 'student':
                     cursor.execute("SELECT * FROM Transactions WHERE StudentID = %s", (request.user['id'],))
                 elif request.auth == 'instructor':
                     cursor.execute("SELECT * FROM Transactions WHERE InstructorID = %s", (request.user['id'],))
+                    is_student = False
                 rows = cursor.fetchall()
                 columns = [col[0] for col in cursor.description]
                 transactions_data = [dict(zip(columns, row)) for row in rows]
+                for i, data in enumerate(transactions_data):
+                    cursor.execute("SELECT * FROM Student WHERE StudentID = %s", (data["studentid"],))
+                    student_data = cursor.fetchone()
+                    if student_data:
+                        columns = [col[0] for col in cursor.description]
+                        transactions_data[i]["student"] = dict(zip(columns, student_data))
+                    cursor.execute("SELECT * FROM Instructor WHERE InstructorID = %s", (data["instructorid"],))
+                    instructor_data = cursor.fetchone()
+                    if instructor_data:
+                        columns = [col[0] for col in cursor.description]
+                        transactions_data[i]["instructor"] = dict(zip(columns, instructor_data))
                 return Response({"transactions": transactions_data}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

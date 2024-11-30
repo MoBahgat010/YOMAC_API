@@ -141,7 +141,7 @@ class ChangeDB(APIView):
                 VideoID INT REFERENCES Video(VideoID) ON DELETE CASCADE,
                 StudentID INT REFERENCES Student(StudentID) ON DELETE CASCADE,
                 CourseID INT REFERENCES Course(CourseID) ON DELETE CASCADE,
-                VideoProgress DECIMAL(4,2) CHECK (VideoProgress >= 0 AND VideoProgress <= 100) DEFAULT 0,
+                VideoProgress DECIMAL(5,2) CHECK (VideoProgress >= 0 AND VideoProgress <= 100) DEFAULT 0,
                 CreatedAt TIMESTAMP Default CURRENT_TIMESTAMP,
                 PRIMARY KEY (VideoID, StudentID)
             );
@@ -297,7 +297,59 @@ class ChangeDB(APIView):
             return Response({"message": "Failed to drop existing tables"}, status=status.HTTP_400_BAD_REQUEST)
         return Response({}, status=status.HTTP_200_OK)
 
-
+def get_learning_time(student_id):
+    query = """
+        SELECT SUM((vs.VideoProgress / 100) * v.VideoDuration) FROM Video_Student AS vs
+        INNER JOIN Video AS v
+        ON vs.VideoID = v.VideoID
+        WHERE vs.StudentID = %s
+    """
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (student_id,))
+            result = cursor.fetchone()
+            print("learning time: ", result)
+            if result:
+                return result[0]
+            return 0
+    except Exception as e:
+        return Response({"message": "Failed to get learning time"},status=status.HTTP_400_BAD_REQUEST)
+def get_course_learning_time(course_id, student_id):
+    query = """
+        SELECT SUM((vs.VideoProgress / 100) * v.VideoDuration) FROM Video_Student AS vs
+        INNER JOIN Video AS v
+        ON vs.VideoID = v.VideoID
+        WHERE vs.StudentID = %s AND vs.CourseID = %s
+    """
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (student_id, course_id))
+            result = cursor.fetchone()
+            print("learning time: ", result[0])
+            if result:
+                return result[0].total_seconds()
+            return 0
+    except Exception as e:
+        return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+def get_courses_progress(student_id):
+    query = """
+        SELECT c.* FROM Course AS c
+        INNER JOIN Student_Course AS sc
+        ON c.CourseID = sc.CourseID
+        WHERE sc.StudentID = %s;
+    """
+    result = []
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (student_id,))
+            courses = cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+            courses = [dict(zip(columns, course)) for course in courses]
+            for i, course in enumerate(courses):
+                courses[i]['progress'] =  get_course_learning_time(course['courseid'], student_id) / course['duration'].total_seconds() * 100
+            return courses
+    except Exception as e:
+        return Response({"message": str(e)},status=status.HTTP_400_BAD_REQUEST)
 
 class SignUpAsInstructorView(APIView):
     authentication_classes = []
@@ -341,7 +393,7 @@ class SignUpAsInstructorView(APIView):
         return Response({"message": "Instructor created successfully",}, status=status.HTTP_201_CREATED)
 class GetStudentData(APIView):
     authentication_classes = [CustomTokenAuthentication]
-    permission_classes = [IsInstructor]
+    permission_classes = [AllowAny]
     def get(self, request, student_id):
         query = """
             SELECT Count(sc.CourseID) FROM Student_Course AS sc
@@ -355,19 +407,29 @@ class GetStudentData(APIView):
         """
         try:
             with connection.cursor() as cursor:
-                cursor.execute(query, (student_id, request.user['id']))
-                count0 = cursor.fetchone()[0]
-                cursor.execute(query1, (student_id, request.user['id']))
-                count1 = cursor.fetchone()[0]
+                if student_id != request.user['id']:
+                    print(student_id)
+                    print(request.user['id'])
+                    cursor.execute(query, (student_id, request.user['id']))
+                    count0 = cursor.fetchone()[0]
+                    cursor.execute(query1, (student_id, request.user['id']))
+                    count1 = cursor.fetchone()[0]
                 if bool(count0) or bool(count1):
                     cursor.execute("SELECT * FROM Student WHERE StudentID = %s", (student_id,))
                     columns = [col[0] for col in cursor.description]
                     rows = cursor.fetchall()
                     student_data = dict(zip(columns, rows[0]))
                     del student_data['password']
+                    returned_value = get_learning_time(student_id)
+                    if isinstance(returned_value, Response):
+                        return returned_value
+                    returned_value = get_courses_progress(student_id)
+                    if isinstance(returned_value, Response):
+                        return returned_value
+                    student_data['courses_progress'] = returned_value
                     return Response({"student_data": student_data}, status=status.HTTP_200_OK)
                 else:
-                    return Response({"error": "Student is not enrolled in any of this instructor course"}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"error": "you are not the student or an instructor who has them enrolled on one of your courses"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 class SignUpAsStudentView(APIView):
@@ -439,6 +501,7 @@ class SignInInstructorView(APIView):
                     "rating": instructor_temp_data[0][7],
                     "createdAt": instructor_temp_data[0][8],
                     "social_media": instructor_temp_data[0][9],
+                    "role": "instructor"
                 }
         except Exception as e:
             return Response({"error": str(e),}, status=status.HTTP_400_BAD_REQUEST)
@@ -483,6 +546,7 @@ class SignInStudentView(APIView):
                     "password": student_temp_data[0][4],
                     "profilepic": student_temp_data[0][5],
                     "createdAt": student_temp_data[0][6],
+                    "role": "student"
                 }
         except Exception as e:
             return Response({"error": str(e),}, status=status.HTTP_400_BAD_REQUEST)
@@ -510,7 +574,8 @@ class GenerateNewTokenView(APIView):
         (refresh, token) = GenerateTokens(request.user['id'], request.auth)
         response = Response({
             "token": token,
-            "user_data": request.user
+            "user_data": request.user,
+            "role": request.auth
         })
         response.set_cookie(
             key="token",
