@@ -1511,16 +1511,12 @@ class GetSingleCourse(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsStudent]
     def get(self, request, course_id):
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT * FROM course WHERE courseid = %s", (course_id,))
-                columns = [col[0] for col in cursor.description]  # Get column names
-                rows = cursor.fetchall()
-                course_data = [dict(zip(columns, row)) for row in rows]
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        query = "SELECT * FROM course WHERE courseid = %s"
+        courses = fetch_courses(query, course_id)
+        if isinstance(courses, Response):
+            return courses
         return Response({
-            "course": course_data
+            "course": courses
         }, status=status.HTTP_200_OK)
 class IncreaseStudentBalanceView(APIView):
     authentication_classes = [CustomTokenAuthentication]
