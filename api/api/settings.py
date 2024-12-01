@@ -56,9 +56,31 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
 ]
 
+CORS_ALLOW_CREDENTIALS = True
+
+# Allow all headers
+CORS_ALLOW_HEADERS = [
+    'Authorization',
+    'Content-Type',
+    'X-Requested-With',
+    'token'  # Add custom headers like 'token'
+]
+
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:5173', # here is the domains that are allowed to use this api
+]
+
+CSRF_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_ALL_ORIGINS = True
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_METHODS = (
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+)
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=25),
