@@ -218,7 +218,8 @@ def create_contest(title, courseId, questions, quizDuration, totalMarks, passing
 def fetch_contests(course_id):
     query = """
         SELECT * FROM ContestExam WHERE CourseID = %s AND ContestExamID NOT IN (
-            SELECT ContestExamID FROM InstructorWhiteBoard
+            SELECT ContestExamID FROM InstructorWhiteBoard AS i
+            WHERE i.AssignmentID IS NOT NULL
         );;
     """
     try:
@@ -290,6 +291,7 @@ def add_assignment_to_student(studentID, assignmentID):
         INSERT INTO Student_Assignment (StudentID, AssignmentID, SubmissionLink, Grade, SubmissionDate, PassFail)
         VALUES (%s, %s, %s, %s, %s, %s);
     """
+    print("HI")
     try:
         with connection.cursor() as cursor:
             cursor.execute(insert_query, (studentID, assignmentID, None, 0, None, None))
@@ -301,16 +303,43 @@ def fetch_assignments(sections):
         for j, inner_section in enumerate(outer_section):
             try:
                 with connection.cursor() as cursor:
+                    print("section id: ", inner_section['coursesectionid'])
                     cursor.execute("""
-                        SELECT * FROM Assignment
-                        WHERE CourseSectionID = %s AND AssignmentID NOT IN (
-                            SELECT AssignmentID FROM InstructorWhiteBoard
+                        SELECT * FROM Assignment AS a
+                        WHERE CourseSectionID = %s AND a.AssignmentID NOT IN (
+                            SELECT i.AssignmentID FROM InstructorWhiteBoard AS i
+                            WHERE i.AssignmentID IS NOT NULL
                         );
                     """, (inner_section['coursesectionid'],))
                     section_rows = cursor.fetchall()
                     section_columns = [col[0] for col in cursor.description]
                     sections[i][j]['assignment'] = []
                     sections[i][j]["assignment"] = [dict(zip(section_columns, row)) for row in section_rows]
+            except Exception as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    return sections
+def fetch_student_assignemnts_in_course(sections):
+    for i, outer_section in enumerate(sections):
+        for j, inner_section in enumerate(outer_section):
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT * FROM Assignment AS a
+                        WHERE CourseSectionID = %s AND a.AssignmentID NOT IN (
+                            SELECT i.AssignmentID FROM InstructorWhiteBoard AS i
+                            WHERE i.AssignmentID IS NOT NULL
+                        );
+                    """, (inner_section['coursesectionid'],))
+                    section_rows = cursor.fetchall()
+                    section_columns = [col[0] for col in cursor.description]
+                    sections[i][j]['assignment'] = []
+                    sections[i][j]["assignment"] = [dict(zip(section_columns, row)) for row in section_rows]
+                    for assignment in sections[i][j]["assignment"]:
+                        cursor.execute("SELECT * FROM Student_Assignment WHERE AssignmentID = %s", (assignment["assignmentid"],))
+                        student_rows = cursor.fetchall()
+                        student_columns = [col[0] for col in cursor.description]
+                        assignment["student"] = []
+                        assignment["student"] = [dict(zip(student_columns, row)) for row in student_rows][0]
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     return sections
@@ -346,7 +375,8 @@ def fetch_quizzes(sections):
                     cursor.execute("""
                         SELECT * FROM QuizExam
                         WHERE SectionID = %s AND QuizExamID NOT IN (
-                            SELECT QuizExamID FROM InstructorWhiteBoard
+                            SELECT QuizExamID FROM InstructorWhiteBoard AS i
+                            WHERE i.AssignmentID IS NOT NULL
                         );
                     """, (inner_section['coursesectionid'],))
                     section_rows = cursor.fetchall()
@@ -408,6 +438,39 @@ def fetch_courses(query, param, student_id = None):
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     return data
+
+def fetch_course_quizzes(course_id):
+    courses = []
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM Course WHERE CourseID = %s", (course_id,))
+            rows = cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+            courses = [dict(zip(columns, row)) for row in rows]
+            course_ids = [course['courseid'] for course in courses]
+            sections = []
+            for i, course_id in enumerate(course_ids):
+                cursor.execute("""
+                    SELECT * FROM CourseSection
+                    WHERE courseid = %s;
+                """, (course_id,))
+                section_rows = cursor.fetchall()
+                section_columns = [col[0] for col in cursor.description]
+                sections.append([dict(zip(section_columns, row)) for row in section_rows])
+            #////////////////////////////////////////Fetch Quizzes/////////////////////////////////////////#
+            sections = fetch_quizzes(sections)
+            if isinstance(sections, Response):
+                return sections
+            print(sections)
+            data = []
+            for i in range(len(courses)):
+                temp_data = {}
+                temp_data['sections'] = sections[i]
+                data.append(temp_data)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    return data
+
 def add_sections(sections, course_id, user_id):
     quiz_messages = []
     sectionIDs = []
@@ -521,7 +584,6 @@ def fetch_instructor_for_whiteboard(whiteboard_items):
                 if row:
                     del whiteboard_item['instructorid'] 
                     whiteboard_item['instructor'] = dict(zip(columns, row))
-                    break
 def fetch_quiz_for_whiteboard(whiteboard_items):
     for whiteboard_item in whiteboard_items:
         if whiteboard_item['quizexamid'] is not None:
@@ -566,8 +628,8 @@ def fetch_whiteboard(course_id):
             whiteboard_items = [dict(zip(columns, row)) for row in rows]
             fetch_assignment_for_whiteboard(whiteboard_items)
             fetch_contest_for_whiteboard(whiteboard_items)
-            fetch_instructor_for_whiteboard(whiteboard_items)
             fetch_quiz_for_whiteboard(whiteboard_items)
+            fetch_instructor_for_whiteboard(whiteboard_items)
             return whiteboard_items
     except Exception as e:
         return (Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST))
@@ -620,7 +682,7 @@ def make_transaction(student_id, instructor_id, course_id):
     except Exception as e:
         return (Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST), False)
 
-def check_if_private_course(student_id, courseID):
+def check_if_private_course(courseID):
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT SeenStatus FROM Course WHERE CourseID = %s", (courseID,))
@@ -784,8 +846,59 @@ def get_review_student_id(review_id):
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-def get_users_data(data):
-    pass
+def get_instructor_courses(instructor_id):
+    top_instructor_query = "SELECT * FROM course WHERE topinstructorid = %s"
+    returned_value = fetch_courses(query=top_instructor_query, param=instructor_id)
+    if isinstance(returned_value, Response):
+        return returned_value
+    top_instructor_courses = returned_value
+    non_top_instructor_query = """
+        SELECT c.* 
+        FROM course AS c INNER JOIN course_instructor AS ci
+        ON c.CourseID = ci.CourseID
+        WHERE instructorid = %s
+    """
+    returned_value = fetch_courses(query=non_top_instructor_query, param=instructor_id)
+    if isinstance(returned_value, Response):
+        return returned_value
+    non_top_instructor_courses = returned_value
+    return (top_instructor_courses, non_top_instructor_courses)
+
+def fetch_course_assignments(course_id, role):
+    courses = []
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM Course WHERE CourseID = %s", (course_id,))
+            rows = cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+            courses = [dict(zip(columns, row)) for row in rows]
+            course_ids = [course['courseid'] for course in courses]
+            sections = []
+            for i, course_id in enumerate(course_ids):
+                cursor.execute("""
+                    SELECT * FROM CourseSection
+                    WHERE courseid = %s;
+                """, (course_id,))
+                section_rows = cursor.fetchall()
+                section_columns = [col[0] for col in cursor.description]
+                sections.append([dict(zip(section_columns, row)) for row in section_rows])
+            #////////////////////////////////////////Fetch Assignment/////////////////////////////////////////#
+            print(role)
+            if role == "student":
+                sections = fetch_student_assignemnts_in_course(sections)
+            elif role == "instructor":
+                sections = fetch_assignments(sections)
+            if isinstance(sections, Response):
+                return sections
+            data = []
+            for i in range(len(courses)):
+                temp_data = {}
+                temp_data = courses[i]
+                temp_data['sections'] = sections[i]
+                data.append(temp_data)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    return data
 
 class CreateCourseView(APIView):
     authentication_classes = [CustomTokenAuthentication]
@@ -866,21 +979,11 @@ class GetInstructorCourses(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsInstructor]
     def get(self, request):
-        top_instructor_query = "SELECT * FROM course WHERE topinstructorid = %s"
-        returned_value = fetch_courses(query=top_instructor_query, param=request.user['id'])
+        returned_value = get_instructor_courses(request.user['id'])
         if isinstance(returned_value, Response):
             return returned_value
-        top_instructor_courses = returned_value
-        non_top_instructor_query = """
-            SELECT c.* 
-            FROM course AS c INNER JOIN course_instructor AS ci
-            ON c.CourseID = ci.CourseID
-            WHERE instructorid = %s
-        """
-        returned_value = fetch_courses(query=non_top_instructor_query, param=request.user['id'])
-        if isinstance(returned_value, Response):
-            return returned_value
-        non_top_instructor_courses = returned_value
+        top_instructor_courses = returned_value[0]
+        non_top_instructor_courses = returned_value[1]
         return Response({
             "top_instructor_courses": top_instructor_courses,
             "non_top_instructor_courses": non_top_instructor_courses
@@ -913,13 +1016,67 @@ class GetStudentCourses(APIView):
             return returned_value
         courses = returned_value
         return Response(courses, status=status.HTTP_200_OK)
+class GetStudentDataInCourseView(APIView):
+    authentication_classes = [CustomTokenAuthentication]
+    permission_classes = [IsInstructor]
+    def get(self, request):
+        student_id = request.data.get("student_id", None)
+        course_id = request.data.get("course_id", None)
+        if student_id is None or course_id is None:
+            return Response({"error": "smth wrong in inserted data"}, status=status.HTTP_400_BAD_REQUEST)
+        instructor_query = """
+            SELECT COUNT(*)
+            FROM Course AS c
+            INNER JOIN Course_Instructor AS ci
+            ON c.CourseID = ci.CourseID
+            INNER JOIN Student_Course AS sc
+            ON sc.CourseID = c.CourseID
+            WHERE c.CourseID = %s AND (c.TopInstructorID = %s OR ci.InstructorID = %s) AND sc.StudentID = %s;
+        """
+        student_query = """
+            SELECT vs.VideoProgress, v.Title AS VideoTitle,
+            v.VideoID, cs.Title AS CourseSectionTitle, cs.CourseSectionID
+            FROM CourseSection AS cs
+            INNER JOIN Video AS v
+            ON v.CourseSectionID = cs.CourseSectionID
+            LEFT JOIN Video_Student AS vs
+            ON v.VideoID = vs.VideoID AND vs.StudentID = %s
+            ORDER BY cs.CourseSectionID, v.VideoID;
+        """
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(instructor_query, (course_id, request.user["id"], request.user["id"], student_id))
+                result = cursor.fetchone()[0]
+                if result == 0:
+                    return Response({"error": "You are not an instructor in this course or course does not exist or student is not in this course or does not exist"}, status=status.HTTP_403_FORBIDDEN)
+                cursor.execute(student_query, (student_id,))
+                student_data_rows = cursor.fetchall()
+                student_data_columns = [col[0] for col in cursor.description]
+                student_data = [dict(zip(student_data_columns, student_row)) for student_row in student_data_rows]
+                sections = []
+                for item in student_data:
+                    section_id = item.get("coursesectionid") - 1
+                    while len(sections) <= section_id:
+                        sections.append([])
+                    sections[section_id].append(item)
+                cursor.execute("SELECT * FROM Student WHERE StudentId = %s", (student_id,))
+                student_rows = cursor.fetchone()
+                student_columns = [col[0] for col in cursor.description]
+                student = dict(zip(student_columns, student_rows))
+                return Response({
+                    "student_data": student,
+                    "student_data_in course": sections
+                }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 class StudentEnrollmentView(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsStudent]
     def post(self, request):
         courseID = request.data.get("courseID", None)
         return enroll_student_on_course(request.user['id'], courseID)
-        
+    
 class AskInQAVideoView(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsStudent]
@@ -1606,21 +1763,45 @@ class StudentEnrollmentInPrivateCourse(APIView):
         if isinstance(returned_value, Response):
             return returned_value
         if returned_value:
-            enroll_student_on_course(request.user['id'], course_id)
+            return enroll_student_on_course(request.user['id'], course_id)
         else:
             return Response({"error": "Course is not private"}, status=status.HTTP_400_BAD_REQUEST)
+
+class GetCourseAssignmentsView(APIView):
+    authentication_classes = [CustomTokenAuthentication]
+    permission_classes = [AllowAny]
+    def get(self, request, course_id):     
+        returned_value = fetch_course_assignments(course_id, request.auth)
+        if isinstance(returned_value, Response):
+            return returned_value
+        result_sections = [course["sections"] for course in returned_value]
+        return Response(result_sections[0], status=status.HTTP_200_OK)
+class GetCourseQuizzesView(APIView):
+    authentication_classes = [CustomTokenAuthentication]
+    permission_classes = [AllowAny]
+    def get(self, request, course_id):
+        returned_value = fetch_course_quizzes(course_id)
+        if isinstance(returned_value, Response):
+            return returned_value
+        return Response(returned_value[0]['sections'], status=status.HTTP_200_OK)
 
 class MakeAnnouncementView(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsInstructor]
     def post(self, request):
-        announcement = request.data('announcement', None)
+        announcement = request.data.get('announcement', None)
         course_id = request.data.get('course_id', None)
         if announcement is None or course_id is None:
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
         (top_instructor_id, _) = fetch_top_instructor_by_course(course_id)
-        if top_instructor_id != request.user['id']:
-            return Response({"error": "You are not the top instructor of this course"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT InstructorID FROM Course_Instructor WHERE CourseID = %s", (course_id,))
+                course_instructor_ids = [row[0] for row in cursor.fetchall()]
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if top_instructor_id != request.user['id'] and request.user['id'] not in course_instructor_ids:
+            return Response({"error": "You are not an instructor in this course"}, status=status.HTTP_400_BAD_REQUEST)
         returned_value = check_if_private_course(course_id)
         if isinstance(returned_value, Response):
             return returned_value
@@ -1640,15 +1821,25 @@ class MakeAnnouncementView(APIView):
 class UpdateAnnouncementView(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsInstructor]
-    def post(self, request):
-        announcement = request.data('announcement', None)
+    def put(self, request):
+        announcement = request.data.get('announcement', None)
         course_id = request.data.get('course_id', None)
         announcement_id = request.data.get('announcement_id', None)
         if announcement is None or course_id is None or announcement_id is None:
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
         (top_instructor_id, _) = fetch_top_instructor_by_course(course_id)
-        if top_instructor_id != request.user['id']:
-            return Response({"error": "You are not the top instructor of this course"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT AnnouncerID FROM CourseAnnouncements WHERE AnnouncementID = %s", (announcement_id,))
+                announcer_id = cursor.fetchone()
+                if announcer_id is None:
+                    return Response({"error": "Announcement not found"}, status=status.HTTP_400_BAD_REQUEST)
+                announcer_id = announcer_id[0]
+                print("announcer_id: ", announcer_id)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if top_instructor_id != request.user['id'] and request.user['id'] != announcer_id:
+            return Response({"error": "You are not authorized to edit this announcement"}, status=status.HTTP_403_FORBIDDEN)
         returned_value = check_if_private_course(course_id)
         if isinstance(returned_value, Response):
             return returned_value
@@ -1668,22 +1859,66 @@ class UpdateAnnouncementView(APIView):
             return Response({"error": "Course is not private"}, status=status.HTTP_400_BAD_REQUEST)  
 class GetAnnouncementsView(APIView):
     authentication_classes = [CustomTokenAuthentication]
-    permission_classes = [IsInstructor]
+    permission_classes = [AllowAny]
     def get(self, request, course_id):
-        (top_instructor_id, _) = fetch_top_instructor_by_course(course_id)
-        if top_instructor_id != request.user['id']:
-            return Response({"error": "You are not the top instructor of this course"}, status=status.HTTP_400_BAD_REQUEST)
-        returned_value = check_if_private_course(course_id)
-        if isinstance(returned_value, Response):
-            return returned_value
-        if returned_value:
+        # (top_instructor_id, _) = fetch_top_instructor_by_course(course_id)
+        # try:
+        #     with connection.cursor() as cursor:
+        #         cursor.execute("SELECT InstructorID FROM Course_Instructor WHERE CourseID = %s", (course_id,))
+        #         course_instructor_ids = [row[0] for row in cursor.fetchall()]
+        # except Exception as e:
+        #     return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        # if top_instructor_id != request.user['id'] and request.user['id'] not in course_instructor_ids:
+        #     return Response({"error": "You are not an instructor in this course"}, status=status.HTTP_400_BAD_REQUEST)
+        # returned_value = check_if_private_course(course_id)
+        # if isinstance(returned_value, Response):
+        #     return returned_value
+        # if returned_value:
             try:
                 with connection.cursor() as cursor:
                     cursor.execute("SELECT * FROM CourseAnnouncements WHERE CourseID = %s;", (course_id))
                     announcements_rows = cursor.fetchall()
                     announcements_cols = [col[0] for col in cursor.description]
                     announcements = [dict(zip(announcements_cols, row)) for row in announcements_rows]
+                    for i, announcement in enumerate(announcements):
+                        instructor_id = announcement["announcerid"]
+                        cursor.execute("SELECT * FROM Instructor WHERE InstructorID = %s", (instructor_id,))
+                        instructor_rows = cursor.fetchone()
+                        instructor_cols = [col[0] for col in cursor.description]
+                        instructor = dict(zip(instructor_cols, instructor_rows))
+                        announcements[i]["announcer"] = instructor
+                        del announcements[i]["announcerid"]
                     return Response(announcements, status=status.HTTP_200_OK)
+            except Exception as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        # else:
+        #     return Response({"error": "Course is not private"}, status=status.HTTP_400_BAD_REQUEST)
+class DeleteAnnouncementView(APIView):
+    authentication_classes = [CustomTokenAuthentication]
+    permission_classes = [IsInstructor]
+    def delete(self, request):
+        announcement_id = request.data.get('announcement_id')
+        course_id = request.data.get('course_id')
+        (top_instructor_id, _) = fetch_top_instructor_by_course(course_id)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT AnnouncerID FROM CourseAnnouncements WHERE AnnouncementID = %s", (announcement_id,))
+                announcer_id = cursor.fetchone()
+                if announcer_id is None:
+                    return Response({"error": "Announcement not found"}, status=status.HTTP_400_BAD_REQUEST)
+                announcer_id = announcer_id[0]
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if top_instructor_id != request.user['id'] and request.user['id'] != announcer_id:
+            return Response({"error": "You are not authorized to delete this announcement"}, status=status.HTTP_403_FORBIDDEN)
+        returned_value = check_if_private_course(course_id)
+        if isinstance(returned_value, Response):
+            return returned_value
+        if returned_value:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM CourseAnnouncements WHERE AnnouncementID = %s;", (announcement_id,))
+                    return Response({"message": "Announcement deleted successfully"}, status=status.HTTP_200_OK)
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         else:
@@ -1885,24 +2120,3 @@ class GetFeedBackViewForInstructorView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-class DeleteAnnouncementView(APIView):
-    authentication_classes = [CustomTokenAuthentication]
-    permission_classes = [IsInstructor]
-    def delete(self, request):
-        announcement_id = request.data.get('announcement_id')
-        course_id = request.data.get('course_id')
-        (top_instructor_id, _) = fetch_top_instructor_by_course(course_id)
-        if top_instructor_id != request.user['id']:
-            return Response({"error": "You are not the top instructor of this course"}, status=status.HTTP_400_BAD_REQUEST)
-        returned_value = check_if_private_course(course_id)
-        if isinstance(returned_value, Response):
-            return returned_value
-        if returned_value:
-            try:
-                with connection.cursor() as cursor:
-                    cursor.execute("DELETE FROM CourseAnnouncements WHERE AnnouncementID = %s;", (announcement_id,))
-                    return Response({"message": "Announcement deleted successfully"}, status=status.HTTP_200_OK)
-            except Exception as e:
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            return Response({"error": "Course is not private"}, status=status.HTTP_400_BAD_REQUEST)

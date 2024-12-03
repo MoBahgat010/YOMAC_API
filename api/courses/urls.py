@@ -5,6 +5,7 @@ urlpatterns = [
     path('create_course', CreateCourseView.as_view()),
     path('get_instructor_courses', GetInstructorCourses.as_view()),
     path('get_student_courses', GetStudentCourses.as_view()),
+    path("get_student_data", GetStudentDataInCourseView.as_view()),
     path('enroll_student_to_course', StudentEnrollmentView.as_view()),
     path('ask_in_qa', AskInQAVideoView.as_view()),
     path('student_answers_in_qa', StudentAnswerInQAVideoView.as_view()),
@@ -44,6 +45,10 @@ urlpatterns = [
     path("delete_qa", DeleteQAView.as_view()),
     path("edit_message", EditMessage.as_view()),
     path("delete_message", DeleteMessage.as_view()),
+    
+    path("enroll_student_to_private_course/<str:course_id>", StudentEnrollmentInPrivateCourse.as_view()),
+    path("get_course_assignments/<str:course_id>", GetCourseAssignmentsView.as_view()),
+    path("get_course_quizzes/<str:course_id>", GetCourseQuizzesView.as_view()),
 
     path("add_feedback_to_course", AddFeedbackReviewToCourseView.as_view()),
     path("add_feedback_to_instructor", AddFeedbackReviewToInstructorView.as_view()),
@@ -52,6 +57,10 @@ urlpatterns = [
     path("get_feedbacks_for_course", GetFeedBackViewForCourseView.as_view()),
     path("get_feedbacks_for_instructor", GetFeedBackViewForInstructorView.as_view()),
 
+    path("make_announcement", MakeAnnouncementView.as_view()),
+    path("edit_announcement", UpdateAnnouncementView.as_view()),
+    path("delete_announcement", DeleteAnnouncementView.as_view()),
+    path("get_announcement/<str:course_id>", GetAnnouncementsView.as_view()),
 
     path("update_video_progress", UpdateStudentVideoProgress.as_view()),
     path("get_course_statistics/<str:course_id>", GetCourseStatistics.as_view()),

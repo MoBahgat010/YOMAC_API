@@ -13,6 +13,7 @@ from django.template import loader
 from django.core.mail import send_mail
 from django.utils.html import strip_tags
 from permission import IsInstructor, IsStudent
+from courses.views import get_instructor_courses
 # Create your views here.
 
 class ChangeDB(APIView):
@@ -351,6 +352,72 @@ def get_courses_progress(student_id):
     except Exception as e:
         return Response({"message": str(e)},status=status.HTTP_400_BAD_REQUEST)
 
+def get_student_data(student_id):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM Student WHERE StudentID = %s", (student_id,))
+            columns = [col[0] for col in cursor.description]
+            rows = cursor.fetchall()
+            student_data = dict(zip(columns, rows[0]))
+            del student_data['password']
+            returned_value = get_learning_time(student_id)
+            if isinstance(returned_value, Response):
+                return returned_value
+            student_data['learning_time'] = returned_value
+            returned_value = get_courses_progress(student_id)
+            if isinstance(returned_value, Response):
+                return returned_value
+            student_data['courses_progress'] = returned_value
+            return Response(student_data, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+def get_instructor_data(instructor_id):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM Instructor WHERE InstructorID = %s", (instructor_id,))
+            columns = [col[0] for col in cursor.description]
+            rows = cursor.fetchall()
+            instructor_data = dict(zip(columns, rows[0]))
+            returned_value = get_instructor_courses(instructor_id)
+            if isinstance(returned_value, Response):
+                return returned_value
+            top_instructor_courses = returned_value[0]
+            non_top_instructor_courses = returned_value[1]
+            instructor_data['top_courses'] = top_instructor_courses
+            instructor_data['non_top_courses'] = non_top_instructor_courses
+            return Response(instructor_data, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UpdateUserProfileDataView(APIView):
+    authentication_classes = [CustomTokenAuthentication]
+    permission_classes = [AllowAny]
+    def put(self, request):
+        name = request.data.get("name", None)
+        email = request.data.get("email", None)
+        password = request.data.get("password", None)
+        username = request.data.get("username", None)
+        if name is None or email is None or password is None or username is None:
+            return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+        student_query = """
+            UPDATE Student
+            SET StudentName = %s, Email = %s, Password = %s, Username = %s
+            WHERE StudentID = %s;
+        """
+        instructor_query = """
+            UPDATE Instructor
+            SET InstructorName = %s, Email = %s, Password = %s, Username = %s
+            WHERE InstructorID = %s;
+        """
+        if request.auth == "student":
+            with connection.cursor() as cursor:
+                cursor.execute(student_query, (name, email, make_password(password), username, request.user["id"]))
+                return Response({"message": "student profile updated successfully"}, status=status.HTTP_200_OK)
+        elif request.auth == "instructor":
+            with connection.cursor() as cursor:
+                cursor.execute(instructor_query, (name, email, make_password(password), username, request.user["id"]))
+                return Response({"message": "instructor profile updated successfully"}, status=status.HTTP_200_OK)
 class SignUpAsInstructorView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -391,47 +458,15 @@ class SignUpAsInstructorView(APIView):
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"message": "Instructor created successfully",}, status=status.HTTP_201_CREATED)
-class GetStudentData(APIView):
+class GetUserProfileDataView(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [AllowAny]
-    def get(self, request, student_id):
-        query = """
-            SELECT Count(sc.CourseID) FROM Student_Course AS sc
-            INNER JOIN Course_Instructor AS ci ON sc.CourseID = ci.CourseID
-            WHERE sc.StudentID = %s AND ci.InstructorID = %s
-        """
-        query1 = """
-            SELECT Count(sc.CourseID) FROM Student_Course AS sc
-            INNER JOIN Course AS c ON sc.CourseID = c.CourseID
-            WHERE sc.StudentID = %s AND c.TopInstructorID = %s
-        """
-        try:
-            with connection.cursor() as cursor:
-                if student_id != request.user['id']:
-                    print(student_id)
-                    print(request.user['id'])
-                    cursor.execute(query, (student_id, request.user['id']))
-                    count0 = cursor.fetchone()[0]
-                    cursor.execute(query1, (student_id, request.user['id']))
-                    count1 = cursor.fetchone()[0]
-                if bool(count0) or bool(count1):
-                    cursor.execute("SELECT * FROM Student WHERE StudentID = %s", (student_id,))
-                    columns = [col[0] for col in cursor.description]
-                    rows = cursor.fetchall()
-                    student_data = dict(zip(columns, rows[0]))
-                    del student_data['password']
-                    returned_value = get_learning_time(student_id)
-                    if isinstance(returned_value, Response):
-                        return returned_value
-                    returned_value = get_courses_progress(student_id)
-                    if isinstance(returned_value, Response):
-                        return returned_value
-                    student_data['courses_progress'] = returned_value
-                    return Response({"student_data": student_data}, status=status.HTTP_200_OK)
-                else:
-                    return Response({"error": "you are not the student or an instructor who has them enrolled on one of your courses"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    def get(self, request):
+        print(request.auth)
+        if request.auth == "student":
+            return get_student_data(request.user["id"])
+        if request.auth == "instructor":
+            return get_instructor_data(request.user["id"])
 class SignUpAsStudentView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -512,7 +547,7 @@ class SignInInstructorView(APIView):
                 "user_data": instructor_data
             })
             response.set_cookie(
-                key="token",
+                key="login_token",
                 value=refresh,
                 httponly=True,
                 samesite=None,
@@ -557,7 +592,7 @@ class SignInStudentView(APIView):
                 "user_data": student_data
             })
             response.set_cookie(
-                key="token",
+                key="login_token",
                 value=refresh,
                 httponly=True,
                 samesite=None,
@@ -578,7 +613,7 @@ class GenerateNewTokenView(APIView):
             "role": request.auth
         })
         response.set_cookie(
-            key="token",
+            key="login_token",
             value=refresh,
             httponly=True,
             samesite=None,
