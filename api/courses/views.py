@@ -12,42 +12,14 @@ import io
 from authenticate import GenerateTokens, CustomTokenAuthentication, CustomRefreshAuthentication
 from permission import IsInstructor, IsStudent
 from datetime import datetime
+from urllib.parse import urlparse
+
 # Create your views here.
-
-# query = """SELECT CourseID
-#     FROM CourseSection AS cs INNER JOIN Course AS c
-#     ON cs.CourseID = c.CourseID
-#     WHERE cs.CourseSectionID = %s
-# """
-# try:
-#     with connection.cursor() as cursor:
-#         cursor.execute(query, (sectionID,))
-#         courseID = cursor.fetchone()[0]
-# except Exception as e:
-#     return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-#class AskInQAVideoView(APIView):
-#     authentication_classes = [CustomTokenAuthentication]
-#     permission_classes = [IsStudent]
-#     def post(self, request):
-#         videoID = request.data.get("videoID", None)
-#         question = request.data.get("question", "")
-#         if videoID is None or question == "":
-#             return Response({"error": "videoID is missing"}, status=status.HTTP_400_BAD_REQUEST)
-#         query = """
-#             INSERT INTO Messages (MessageText, isAnswer, AnswerTo, SenderStudentID, SenderInstructorID, QAID, ChatID)
-#             VALUES (%s, %s, %s, %s, %s, %s, %s);
-#         """
-#         try:
-#             with connection.cursor() as cursor:
-#                 cursor.execute("INSERT INTO QA (VideoID) VALUES (%s) RETURNING QAID", (videoID,))
-#                 QAID = cursor.fetchone()[0]
-#                 cursor.execute(query, (question, False, None, request.user['id'], None, QAID, None))
-#         except Exception as e:
-#             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-#         return Response({"message": "Question succesfully asked"}, status=status.HTTP_200_OK)
-
-# cursor.execute("TRUNCATE Assignment RESTART IDENTITY CASCADE")
+def extract_public_id(cloudinary_url):
+    parsed_url = urlparse(cloudinary_url)
+    path = parsed_url.path.split("/upload/")[-1]
+    public_id = path.rsplit(".", 1)[0]
+    return public_id
 
 def decode_base64_to_file(base64_str):
     if ',' in base64_str:
@@ -135,10 +107,11 @@ def update_video(data):
             video_attached = cursor.fetchone()[0]
             print("video_attached: ", video_attached)
             new_video_url = video_attached
+            video_attached = extract_public_id(video_attached)
             try:
                 video_file = decode_base64_to_file(video)
                 print(video_file)
-                upload_result = cloudinary.uploader.upload(video_file, resource_type="video", format='mp4')
+                upload_result = cloudinary.uploader.upload(video_file, public_id=video_attached, resource_type="video", format='mp4')
                 new_video_url = upload_result['secure_url']
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)          
@@ -215,21 +188,6 @@ def create_contest(title, courseId, questions, quizDuration, totalMarks, passing
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     return contestID
-def fetch_contests(course_id):
-    query = """
-        SELECT * FROM ContestExam WHERE CourseID = %s AND ContestExamID NOT IN (
-            SELECT ContestExamID FROM InstructorWhiteBoard AS i
-            WHERE i.AssignmentID IS NOT NULL
-        );;
-    """
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(query, (course_id,))
-            contests = cursor.fetchall()
-            contests = [dict(zip([desc[0] for desc in cursor.description], contest)) for contest in contests]
-            return contests
-    except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 def create_quiz(title, sectionID, questions, quizDuration, totalMarks, passingMarks, user_id):
     # check is all data is not None
     if title is None or sectionID is None or questions is None or quizDuration is None or totalMarks is None or passingMarks is None or user_id is None:
@@ -298,50 +256,20 @@ def add_assignment_to_student(studentID, assignmentID):
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     return True
-def fetch_assignments(sections):
-    for i, outer_section in enumerate(sections):
-        for j, inner_section in enumerate(outer_section):
-            try:
-                with connection.cursor() as cursor:
-                    print("section id: ", inner_section['coursesectionid'])
-                    cursor.execute("""
-                        SELECT * FROM Assignment AS a
-                        WHERE CourseSectionID = %s AND a.AssignmentID NOT IN (
-                            SELECT i.AssignmentID FROM InstructorWhiteBoard AS i
-                            WHERE i.AssignmentID IS NOT NULL
-                        );
-                    """, (inner_section['coursesectionid'],))
-                    section_rows = cursor.fetchall()
-                    section_columns = [col[0] for col in cursor.description]
-                    sections[i][j]['assignment'] = []
-                    sections[i][j]["assignment"] = [dict(zip(section_columns, row)) for row in section_rows]
-            except Exception as e:
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-    return sections
+
 def fetch_student_assignemnts_in_course(sections):
-    for i, outer_section in enumerate(sections):
-        for j, inner_section in enumerate(outer_section):
-            try:
-                with connection.cursor() as cursor:
-                    cursor.execute("""
-                        SELECT * FROM Assignment AS a
-                        WHERE CourseSectionID = %s AND a.AssignmentID NOT IN (
-                            SELECT i.AssignmentID FROM InstructorWhiteBoard AS i
-                            WHERE i.AssignmentID IS NOT NULL
-                        );
-                    """, (inner_section['coursesectionid'],))
-                    section_rows = cursor.fetchall()
-                    section_columns = [col[0] for col in cursor.description]
-                    sections[i][j]['assignment'] = []
-                    sections[i][j]["assignment"] = [dict(zip(section_columns, row)) for row in section_rows]
-                    for assignment in sections[i][j]["assignment"]:
-                        cursor.execute("SELECT * FROM Student_Assignment WHERE AssignmentID = %s", (assignment["assignmentid"],))
-                        student_rows = cursor.fetchall()
-                        student_columns = [col[0] for col in cursor.description]
-                        assignment["student"] = []
-                        assignment["student"] = [dict(zip(student_columns, row)) for row in student_rows][0]
-            except Exception as e:
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    sections = fetch_assignments(sections)
+    try:
+        with connection.cursor() as cursor:
+            for section in sections:
+                for i, assignment in enumerate(section['assignment']):
+                    assignmentid = assignment['assignmentid']
+                    cursor.execute("SELECT * FROM Student_Assignment WHERE AssignmentID = %s", (assignmentid,))
+                    student_rows = cursor.fetchall()
+                    student_columns = [col[0] for col in cursor.description]
+                    section['assignment'][i]["student"] = [dict(zip(student_columns, row)) for row in student_rows][0]
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     return sections
 def fetch_videos(sections, student_id):
     for i, outer_section in enumerate(sections):
@@ -367,7 +295,7 @@ def fetch_videos(sections, student_id):
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     return sections
-def fetch_quizzes(sections):
+def fetch_quizzes(sections): #To remove
     for i, outer_section in enumerate(sections):
         for j, inner_section in enumerate(outer_section):
             try:
@@ -386,7 +314,24 @@ def fetch_quizzes(sections):
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     return sections
-def fetch_courses(query, param, student_id = None):
+
+################# Fetch Package #################
+def fetch_contests(course_id):
+    query = """
+        SELECT * FROM ContestExam WHERE CourseID = %s AND ContestExamID NOT IN (
+            SELECT ContestExamID FROM InstructorWhiteBoard AS i
+            WHERE i.AssignmentID IS NOT NULL
+        );;
+    """
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (course_id,))
+            contests = cursor.fetchall()
+            contests = [dict(zip([desc[0] for desc in cursor.description], contest)) for contest in contests]
+            return contests
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+def fetch_raw_courses(query, param):
     courses = []
     if not isinstance(param, tuple):
         param = (param,)
@@ -394,50 +339,129 @@ def fetch_courses(query, param, student_id = None):
         with connection.cursor() as cursor:
             cursor.execute(query, param)
             rows = cursor.fetchall()
+            if len(rows) == 0:
+                return Response({"error": "course not found"}, status=status.HTTP_404_NOT_FOUND)
             columns = [col[0] for col in cursor.description]
             courses = [dict(zip(columns, row)) for row in rows]
             course_ids = [course['courseid'] for course in courses]
-            sections = []
-            contests = []
-            for i, course_id in enumerate(course_ids):
-                if student_id is not None:
-                    returned_value = get_last_watched_video_course(student_id)
-                    if isinstance(returned_value, Response):
-                        return returned_value
-                    courses[i]['last_watched_video'] = returned_value
-                cursor.execute("""
-                    SELECT * FROM CourseSection
-                    WHERE courseid = %s;
-                """, (course_id,))
-                section_rows = cursor.fetchall()
-                section_columns = [col[0] for col in cursor.description]
-                sections.append([dict(zip(section_columns, row)) for row in section_rows])
-                contests.append(fetch_contests(course_id))
-            #////////////////////////////////////////Fetch Contests/////////////////////////////////////////#
-            if isinstance(contests, Response):
-                return contests
-            #////////////////////////////////////////Fetch Quizzes/////////////////////////////////////////#
-            sections = fetch_quizzes(sections)
-            if isinstance(sections, Response):
-                return sections
-            #////////////////////////////////////////Fetch Videos/////////////////////////////////////////#
-            sections = fetch_videos(sections, student_id)
-            if isinstance(sections, Response):
-                return sections
-            #////////////////////////////////////////Fetch Assignment/////////////////////////////////////////#
-            sections = fetch_assignments(sections)
-            if isinstance(sections, Response):
-                return sections
-            data = []
-            for i in range(len(courses)):
-                temp_data = {}
-                temp_data = courses[i]
-                temp_data['contests'] = contests[i]
-                temp_data['sections'] = sections[i]
-                data.append(temp_data)
+            return (courses, course_ids)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-    return data
+def fetch_raw_sections(course_id):
+    sections = []
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT * FROM CourseSection
+                WHERE courseid = %s;
+            """, (course_id,))
+            section_rows = cursor.fetchall()
+            section_columns = [col[0] for col in cursor.description]
+            sections = [dict(zip(section_columns, row)) for row in section_rows]
+            return sections
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+def fetch_videos_overview(sections):
+    for i, outer_section in enumerate(sections):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT VideoID, VideoDuration, Title FROM Video WHERE CourseSectionID = %s",
+                    (outer_section['coursesectionid'],))
+                section_rows = cursor.fetchall()
+                # print("It is ok")
+                section_columns = [col[0] for col in cursor.description]
+                sections[i]['videos'] = []
+                sections[i]["videos"] = [dict(zip(section_columns, row)) for row in section_rows]
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    return sections
+def fetch_quizzes_overview(sections):
+    for i, outer_section in enumerate(sections):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM QuizExam
+                    WHERE SectionID = %s AND QuizExamID NOT IN (
+                        SELECT QuizExamID FROM InstructorWhiteBoard AS i
+                        WHERE i.AssignmentID IS NOT NULL
+                    );
+                """, (outer_section['coursesectionid'],))
+                section_rows = cursor.fetchall()
+                section_columns = [col[0] for col in cursor.description]
+                sections[i]['quizzes'] = []
+                sections[i]['quizzes'] = [dict(zip(section_columns, row)) for row in section_rows]
+                quizzes = sections[i]['quizzes']
+                for j, quiz in enumerate(quizzes):
+                    instructor = fetch_instructor_by_id(quiz['instructorid'])
+                    if isinstance(instructor, Response):
+                        return instructor
+                    del sections[i]['quizzes'][j]['instructorid']
+                    sections[i]['quizzes'][j]['instructor'] = instructor
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    return sections
+def fetch_single_video(videoId, student_id):
+    try:
+        with connection.cursor() as cursor:
+            if student_id is not None:
+                cursor.execute("""
+                    SELECT v.*, COALESCE(vs.VideoProgress, 0) AS VideoProgress
+                    FROM Video AS v LEFT JOIN Video_Student AS vs
+                    ON v.VideoID = vs.VideoID
+                    WHERE vs.StudentID = %s AND vs.VideoId = %s;
+                """, (student_id, videoId))
+            else:
+                cursor.execute("SELECT * FROM Video WHERE VideoId = %s", (videoId,))
+            video_row = cursor.fetchone()
+            if video_row is None:
+                return Response({"error": "Video not found"}, status=status.HTTP_404_NOT_FOUND)
+            video_columns = [col[0] for col in cursor.description]
+            video = dict(zip(video_columns, video_row))
+            return video
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+def fetch_instructor_by_id(instructor_id):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM Instructor WHERE InstructorId = %s", (instructor_id,))
+            row = cursor.fetchone()
+            columns = [col[0] for col in cursor.description]
+            instructor = dict(zip(columns, row))
+            del instructor['password']
+            return instructor
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+def fetch_student_by_id(student_id):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM Student WHERE StudentId = %s", (student_id,))
+            row = cursor.fetchone()
+            columns = [col[0] for col in cursor.description]
+            student = dict(zip(columns, row))
+            del student['password']
+            return student
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+def fetch_assignments(sections):
+    for i, outer_section in enumerate(sections):
+        try:
+            with connection.cursor() as cursor:
+                print("section id: ", outer_section['coursesectionid'])
+                cursor.execute("""
+                    SELECT * FROM Assignment AS a
+                    WHERE CourseSectionID = %s AND a.AssignmentID NOT IN (
+                        SELECT i.AssignmentID FROM InstructorWhiteBoard AS i
+                        WHERE i.AssignmentID IS NOT NULL
+                    );
+                """, (outer_section['coursesectionid'],))
+                section_rows = cursor.fetchall()
+                section_columns = [col[0] for col in cursor.description]
+                sections[i]['assignment'] = []
+                sections[i]["assignment"] = [dict(zip(section_columns, row)) for row in section_rows]
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    return sections
+################# Fetch Package #################
 
 def fetch_course_quizzes(course_id):
     courses = []
@@ -705,27 +729,14 @@ def enroll_student_on_course(student_id, courseID):
             cursor.execute(query, (courseID, student_id, 0))
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-    sections = []
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                SELECT * FROM CourseSection
-                WHERE courseid = %s;
-            """, (courseID,))
-            section_rows = cursor.fetchall()
-            section_columns = [col[0] for col in cursor.description]
-            sections.append([dict(zip(section_columns, row)) for row in section_rows])
-    except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-    
+    sections = fetch_raw_sections(courseID)
     sections = fetch_assignments(sections)
     if isinstance(sections, Response):
         return sections
     assignmentIDs = []
     for outer_section in sections:
-        for inner_section in outer_section:
-            for assignment in inner_section["assignment"]:
-                assignmentIDs.append(assignment['assignmentid'])
+        for assignment in outer_section["assignment"]:
+            assignmentIDs.append(assignment['assignmentid'])
     
     for assignmentID in assignmentIDs:
         returned_value = add_assignment_to_student(studentID=student_id, assignmentID=assignmentID)
@@ -848,57 +859,29 @@ def get_review_student_id(review_id):
 
 def get_instructor_courses(instructor_id):
     top_instructor_query = "SELECT * FROM course WHERE topinstructorid = %s"
-    returned_value = fetch_courses(query=top_instructor_query, param=instructor_id)
+    returned_value = fetch_raw_courses(query=top_instructor_query, param=instructor_id)
     if isinstance(returned_value, Response):
         return returned_value
-    top_instructor_courses = returned_value
+    top_instructor_courses = returned_value[0]
     non_top_instructor_query = """
         SELECT c.* 
         FROM course AS c INNER JOIN course_instructor AS ci
         ON c.CourseID = ci.CourseID
         WHERE instructorid = %s
     """
-    returned_value = fetch_courses(query=non_top_instructor_query, param=instructor_id)
+    returned_value = fetch_raw_courses(query=non_top_instructor_query, param=instructor_id)
     if isinstance(returned_value, Response):
         return returned_value
-    non_top_instructor_courses = returned_value
+    non_top_instructor_courses = returned_value[0]
     return (top_instructor_courses, non_top_instructor_courses)
 
 def fetch_course_assignments(course_id, role):
-    courses = []
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT * FROM Course WHERE CourseID = %s", (course_id,))
-            rows = cursor.fetchall()
-            columns = [col[0] for col in cursor.description]
-            courses = [dict(zip(columns, row)) for row in rows]
-            course_ids = [course['courseid'] for course in courses]
-            sections = []
-            for i, course_id in enumerate(course_ids):
-                cursor.execute("""
-                    SELECT * FROM CourseSection
-                    WHERE courseid = %s;
-                """, (course_id,))
-                section_rows = cursor.fetchall()
-                section_columns = [col[0] for col in cursor.description]
-                sections.append([dict(zip(section_columns, row)) for row in section_rows])
-            #////////////////////////////////////////Fetch Assignment/////////////////////////////////////////#
-            print(role)
-            if role == "student":
-                sections = fetch_student_assignemnts_in_course(sections)
-            elif role == "instructor":
-                sections = fetch_assignments(sections)
-            if isinstance(sections, Response):
-                return sections
-            data = []
-            for i in range(len(courses)):
-                temp_data = {}
-                temp_data = courses[i]
-                temp_data['sections'] = sections[i]
-                data.append(temp_data)
-    except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-    return data
+    sections = fetch_raw_sections(course_id)
+    if role == "student":
+        sections = fetch_student_assignemnts_in_course(sections)
+    elif role == "instructor":
+        sections = fetch_assignments(sections)
+    return sections
 
 class CreateCourseView(APIView):
     authentication_classes = [CustomTokenAuthentication]
@@ -1011,11 +994,13 @@ class GetStudentCourses(APIView):
     permission_classes = [IsStudent]
     def get(self, request):
         query = "SELECT * FROM student_course AS sc INNER JOIN course AS c ON sc.courseid = c.courseid and sc.studentid = %s;"
-        returned_value = fetch_courses(query=query, param=request.user["id"], student_id=request.user["id"])
+        returned_value = fetch_raw_courses(query=query, param=request.user["id"])
         if isinstance(returned_value, Response):
             return returned_value
-        courses = returned_value
+        courses = returned_value[0]
         return Response(courses, status=status.HTTP_200_OK)
+
+# to edit to be eligible for instructor and student
 class GetStudentDataInCourseView(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsInstructor]
@@ -1345,6 +1330,7 @@ class AddAssignment(APIView):
                 returned_value = add_assignment_to_student(studentID=studentID, assignmentID=assignmentID)
                 if isinstance(returned_value, Response):
                     return returned_value
+            return Response({"message": "Assignment Added"}, status=status.HTTP_200_OK)
         else:
             query = """
                 INSERT INTO InstructorWhiteBoard (InstructorID, CourseID, AssignmentID, QuizExamID, ContestExamID)
@@ -1355,7 +1341,7 @@ class AddAssignment(APIView):
                     cursor.execute(query, (request.user['id'], course_id, assignmentID, None, None))
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"message": "Assignment Added"}, status=status.HTTP_200_OK)
+            return Response({"message": "Assignment Added to whiteboard"}, status=status.HTTP_200_OK)
 class SubmitAssignmentView(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsStudent]
@@ -1449,6 +1435,13 @@ class DeleteVideoView(APIView):
                 WHERE VideoID = %s;
             """
             with connection.cursor() as cursor:
+                cursor.execute("SELECT VideoLink FROM Video WHERE VideoID = %s", (videoId,))
+                videoLink = cursor.fetchone()
+                print(videoLink)
+                if videoLink is None:
+                    return Response({"error": "Video does not exist"}, status=status.HTTP_400_BAD_REQUEST)
+                video_public_id = extract_public_id(videoLink[0])
+                cloudinary.uploader.destroy(video_public_id)
                 cursor.execute(query, (videoId,))
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -1489,6 +1482,19 @@ class UpdateAssignment(APIView):
         if isinstance(returned_value, Response):
             return returned_value
         return Response({"message": "Assignment succesfully updated"}, status=status.HTTP_200_OK)
+
+class GetVideoView(APIView):
+    authentication_classes = [CustomTokenAuthentication]
+    permission_classes = [AllowAny]
+    def get(self, request, video_id):
+        if request.auth == "student":
+            video = fetch_single_video(video_id, request.user["id"])
+        elif request.auth == "instructor":
+            video = fetch_single_video(video_id, None)
+        if isinstance(video, Response):
+            return video
+        return Response(video, status=status.HTTP_200_OK)
+
 class UpdateVideo(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsInstructor]
@@ -1626,28 +1632,28 @@ class SearchByTtitle(APIView):
             return Response({"message": "Please provide all required fields"}, status=status.HTTP_400_BAD_REQUEST)
         query = """
             SELECT * FROM Course
-            WHERE Title ILIKE %s;
+            WHERE Title ILIKE %s AND seenStatus = 'public';
         """
         title = f"%{title}%"
-        courses = fetch_courses(query, title)
+        courses = fetch_raw_courses(query, title)
         if isinstance(courses, Response):
             return courses
-        return Response({"courses": courses}, status=status.HTTP_200_OK)
+        return Response(courses[0], status=status.HTTP_200_OK)
 class SearchByCategories(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [AllowAny]
     def get(self, request):
         categories = request.data.get("categories", [])
         query = """
-            SELECT * FROM Course WHERE CategoryID = %s
+            SELECT * FROM Course WHERE CategoryID = %s AND seenStatus = 'public'
         """
         courses = []
         for category in categories:
-            returned_value = fetch_courses(query, category)
+            returned_value = fetch_raw_courses(query, category)
             if isinstance(returned_value, Response):
                 return returned_value
-            courses.append(returned_value)
-        return Response({"courses": courses}, status=status.HTTP_200_OK)      
+            courses.append(returned_value[0])
+        return Response(courses, status=status.HTTP_200_OK)      
 class SearchByTitleAndCategories(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [AllowAny]
@@ -1655,26 +1661,39 @@ class SearchByTitleAndCategories(APIView):
         title = request.data.get("title", None)
         categories = request.data.get("categories", [])
         query = """
-            SELECT * FROM Course WHERE CategoryID = %s AND Title ILIKE %s;
+            SELECT * FROM Course WHERE CategoryID = %s AND Title ILIKE %s AND seenStatus = 'public';
         """
         courses = []
         for category in categories:
-            returned_value = fetch_courses(query, (category, f"%{title}%"))
+            returned_value = fetch_raw_courses(query, (category, f"%{title}%"))
             if isinstance(returned_value, Response):
                 return returned_value
-            courses.append(returned_value)
-        return Response({"courses": courses}, status=status.HTTP_200_OK)      
+            courses.append(returned_value[0])
+        return Response(courses, status=status.HTTP_200_OK)      
 class GetSingleCourse(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsStudent]
     def get(self, request, course_id):
         query = "SELECT * FROM course WHERE courseid = %s"
-        courses = fetch_courses(query, course_id)
+        courses = fetch_raw_courses(query, course_id)
         if isinstance(courses, Response):
             return courses
-        return Response({
-            "course": courses
-        }, status=status.HTTP_200_OK)
+        req_course = courses[0][0]
+        contests = fetch_contests(course_id)
+        if isinstance(contests, Response):
+            return contests
+        req_course['contests'] = contests
+        sections = fetch_raw_sections(course_id)
+        if isinstance(sections, Response):
+            return sections
+        sections = fetch_videos_overview(sections)
+        if isinstance(sections, Response):
+            return sections
+        sections = fetch_quizzes_overview(sections)
+        if isinstance(sections, Response):
+            return sections
+        req_course["sections"] = sections
+        return Response(req_course, status=status.HTTP_200_OK)
 class IncreaseStudentBalanceView(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsStudent]
@@ -1774,8 +1793,8 @@ class GetCourseAssignmentsView(APIView):
         returned_value = fetch_course_assignments(course_id, request.auth)
         if isinstance(returned_value, Response):
             return returned_value
-        result_sections = [course["sections"] for course in returned_value]
-        return Response(result_sections[0], status=status.HTTP_200_OK)
+        # result_sections = [course["sections"] for course in returned_value]
+        return Response(returned_value, status=status.HTTP_200_OK)
 class GetCourseQuizzesView(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [AllowAny]
@@ -2120,3 +2139,126 @@ class GetFeedBackViewForInstructorView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+# query = """SELECT CourseID
+#     FROM CourseSection AS cs INNER JOIN Course AS c
+#     ON cs.CourseID = c.CourseID
+#     WHERE cs.CourseSectionID = %s
+# """
+# try:
+#     with connection.cursor() as cursor:
+#         cursor.execute(query, (sectionID,))
+#         courseID = cursor.fetchone()[0]
+# except Exception as e:
+#     return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+#class AskInQAVideoView(APIView):
+#     authentication_classes = [CustomTokenAuthentication]
+#     permission_classes = [IsStudent]
+#     def post(self, request):
+#         videoID = request.data.get("videoID", None)
+#         question = request.data.get("question", "")
+#         if videoID is None or question == "":
+#             return Response({"error": "videoID is missing"}, status=status.HTTP_400_BAD_REQUEST)
+#         query = """
+#             INSERT INTO Messages (MessageText, isAnswer, AnswerTo, SenderStudentID, SenderInstructorID, QAID, ChatID)
+#             VALUES (%s, %s, %s, %s, %s, %s, %s);
+#         """
+#         try:
+#             with connection.cursor() as cursor:
+#                 cursor.execute("INSERT INTO QA (VideoID) VALUES (%s) RETURNING QAID", (videoID,))
+#                 QAID = cursor.fetchone()[0]
+#                 cursor.execute(query, (question, False, None, request.user['id'], None, QAID, None))
+#         except Exception as e:
+#             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+#         return Response({"message": "Question succesfully asked"}, status=status.HTTP_200_OK)
+
+# cursor.execute("TRUNCATE Assignment RESTART IDENTITY CASCADE")
+
+# def fetch_courses(query, param, student_id = None):
+#     courses = []
+#     if not isinstance(param, tuple):
+#         param = (param,)
+#     try:
+#         with connection.cursor() as cursor:
+#             cursor.execute(query, param)
+#             rows = cursor.fetchall()
+#             columns = [col[0] for col in cursor.description]
+#             courses = [dict(zip(columns, row)) for row in rows]
+#             course_ids = [course['courseid'] for course in courses]
+#             sections = []
+#             contests = []
+#             for i, course_id in enumerate(course_ids):
+#                 if student_id is not None:
+#                     returned_value = get_last_watched_video_course(student_id)
+#                     if isinstance(returned_value, Response):
+#                         return returned_value
+#                     courses[i]['last_watched_video'] = returned_value
+#                 cursor.execute("""
+#                     SELECT * FROM CourseSection
+#                     WHERE courseid = %s;
+#                 """, (course_id,))
+#                 section_rows = cursor.fetchall()
+#                 section_columns = [col[0] for col in cursor.description]
+#                 sections.append([dict(zip(section_columns, row)) for row in section_rows])
+#                 contests.append(fetch_contests(course_id))
+#             #////////////////////////////////////////Fetch Contests/////////////////////////////////////////#
+#             if isinstance(contests, Response):
+#                 return contests
+#             #////////////////////////////////////////Fetch Quizzes/////////////////////////////////////////#
+#             sections = fetch_quizzes(sections)
+#             if isinstance(sections, Response):
+#                 return sections
+#             #////////////////////////////////////////Fetch Videos/////////////////////////////////////////#
+#             sections = fetch_videos(sections, student_id)
+#             if isinstance(sections, Response):
+#                 return sections
+#             #////////////////////////////////////////Fetch Assignment/////////////////////////////////////////#
+#             sections = fetch_assignments(sections)
+#             if isinstance(sections, Response):
+#                 return sections
+#             data = []
+#             for i in range(len(courses)):
+#                 temp_data = {}
+#                 temp_data = courses[i]
+#                 temp_data['contests'] = contests[i]
+#                 temp_data['sections'] = sections[i]
+#                 data.append(temp_data)
+#     except Exception as e:
+#         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+#     return data
+
+# def fetch_course_assignments(course_id, role):
+#     courses = []
+#     try:
+#         with connection.cursor() as cursor:
+#             cursor.execute("SELECT * FROM Course WHERE CourseID = %s", (course_id,))
+#             row = cursor.fetchone()
+#             columns = [col[0] for col in cursor.description]
+#             courses = dict(zip(columns, row))
+#             course_ids = [course['courseid'] for course in courses]
+#             sections = []
+#             for i, course_id in enumerate(course_ids):
+#                 cursor.execute("""
+#                     SELECT * FROM CourseSection
+#                     WHERE courseid = %s;
+#                 """, (course_id,))
+#                 section_rows = cursor.fetchall()
+#                 section_columns = [col[0] for col in cursor.description]
+#                 sections.append([dict(zip(section_columns, row)) for row in section_rows])
+#             #////////////////////////////////////////Fetch Assignment/////////////////////////////////////////#
+#             print(role)
+#             if role == "student":
+#                 sections = fetch_student_assignemnts_in_course(sections)
+#             elif role == "instructor":
+#                 sections = fetch_assignments(sections)
+#             if isinstance(sections, Response):
+#                 return sections
+#             data = []
+#             for i in range(len(courses)):
+#                 temp_data = {}
+#                 temp_data = courses[i]
+#                 temp_data['sections'] = sections[i]
+#                 data.append(temp_data)
+#     except Exception as e:
+#         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+#     return data

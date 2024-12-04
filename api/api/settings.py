@@ -41,6 +41,7 @@ cloudinary.config(
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -49,11 +50,13 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'api_auth',
     'courses',
+    'liveQA',
     'cloudinary',
     'corsheaders',
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
+    'channels',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -81,6 +84,13 @@ CORS_ALLOW_METHODS = (
     "POST",
     "PUT",
 )
+
+ASGI_APPLICATION = 'api.asgi.application'
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=25),
@@ -169,7 +179,6 @@ DATABASES = {
         'PORT': '36131',                    # External port
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators

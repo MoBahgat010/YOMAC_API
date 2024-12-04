@@ -326,8 +326,8 @@ def get_course_learning_time(course_id, student_id):
         with connection.cursor() as cursor:
             cursor.execute(query, (student_id, course_id))
             result = cursor.fetchone()
-            print("learning time: ", result[0])
-            if result:
+            print("learning time: ", result)
+            if result[0] is not None:
                 return result[0].total_seconds()
             return 0
     except Exception as e:
@@ -347,7 +347,8 @@ def get_courses_progress(student_id):
             columns = [col[0] for col in cursor.description]
             courses = [dict(zip(columns, course)) for course in courses]
             for i, course in enumerate(courses):
-                courses[i]['progress'] =  get_course_learning_time(course['courseid'], student_id) / course['duration'].total_seconds() * 100
+                returned_value = get_course_learning_time(course['courseid'], student_id)
+                courses[i]['progress'] =  returned_value / course['duration'].total_seconds() * 100
             return courses
     except Exception as e:
         return Response({"message": str(e)},status=status.HTTP_400_BAD_REQUEST)
@@ -552,7 +553,8 @@ class SignInInstructorView(APIView):
                 httponly=True,
                 samesite=None,
                 secure=False,
-                path='/'
+                path='/',
+                max_age=90*24*60*60
             )
             return response
         return Response({"error": "Invalid username or password"}, status=status.HTTP_401_UNAUTHORIZED)
@@ -597,7 +599,8 @@ class SignInStudentView(APIView):
                 httponly=True,
                 samesite=None,
                 secure=False,
-                path='/'
+                path='/',
+                max_age=90*24*60*60
             )
             return response
         return Response({"error": "Invalid username or password"}, status=status.HTTP_401_UNAUTHORIZED)    
@@ -618,7 +621,8 @@ class GenerateNewTokenView(APIView):
             httponly=True,
             samesite=None,
             secure=False,
-            path='/'
+            path='/',
+            max_age=90*24*60*60
         )
         return response
 class ResetPasswordView(APIView):

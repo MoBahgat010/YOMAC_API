@@ -20,6 +20,7 @@ urlpatterns = [
     path("update_quiz", UpdateQuizView.as_view()),
     path("update_assignment/<str:assignmentId>", UpdateAssignment.as_view()),
     path("update_video", UpdateVideo.as_view()),
+    path("get_video/<str:video_id>", GetVideoView.as_view()),
     path("update_section", UpdateSectionView.as_view()),
     path("add_video", AddVideo.as_view()),
     path("add_section", AddSectionsView.as_view()),
