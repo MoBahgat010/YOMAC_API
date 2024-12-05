@@ -339,8 +339,9 @@ def fetch_raw_courses(query, param):
         with connection.cursor() as cursor:
             cursor.execute(query, param)
             rows = cursor.fetchall()
+            print("rows: ", rows)
             if len(rows) == 0:
-                return Response({"error": "course not found"}, status=status.HTTP_404_NOT_FOUND)
+                return []
             columns = [col[0] for col in cursor.description]
             courses = [dict(zip(columns, row)) for row in rows]
             course_ids = [course['courseid'] for course in courses]
@@ -862,7 +863,10 @@ def get_instructor_courses(instructor_id):
     returned_value = fetch_raw_courses(query=top_instructor_query, param=instructor_id)
     if isinstance(returned_value, Response):
         return returned_value
-    top_instructor_courses = returned_value[0]
+    elif isinstance(returned_value, list):
+        top_instructor_courses = returned_value
+    else:
+        top_instructor_courses = returned_value[0]
     non_top_instructor_query = """
         SELECT c.* 
         FROM course AS c INNER JOIN course_instructor AS ci
@@ -872,7 +876,10 @@ def get_instructor_courses(instructor_id):
     returned_value = fetch_raw_courses(query=non_top_instructor_query, param=instructor_id)
     if isinstance(returned_value, Response):
         return returned_value
-    non_top_instructor_courses = returned_value[0]
+    elif isinstance(returned_value, list):
+        top_instructor_courses = returned_value
+    else:
+        non_top_instructor_courses = returned_value[0]
     return (top_instructor_courses, non_top_instructor_courses)
 
 def fetch_course_assignments(course_id, role):
@@ -997,7 +1004,9 @@ class GetStudentCourses(APIView):
         returned_value = fetch_raw_courses(query=query, param=request.user["id"])
         if isinstance(returned_value, Response):
             return returned_value
-        courses = returned_value[0]
+        elif isinstance(returned_value, list):
+            courses = returned_value
+        courses = returned_value[0]  
         return Response(courses, status=status.HTTP_200_OK)
 
 # to edit to be eligible for instructor and student
@@ -1638,6 +1647,8 @@ class SearchByTtitle(APIView):
         courses = fetch_raw_courses(query, title)
         if isinstance(courses, Response):
             return courses
+        elif isinstance(courses, list):
+            req_courses = courses
         return Response(courses[0], status=status.HTTP_200_OK)
 class SearchByCategories(APIView):
     authentication_classes = [CustomTokenAuthentication]
@@ -1652,6 +1663,8 @@ class SearchByCategories(APIView):
             returned_value = fetch_raw_courses(query, category)
             if isinstance(returned_value, Response):
                 return returned_value
+            elif isinstance(returned_value, list):
+                courses.append(returned_value)
             courses.append(returned_value[0])
         return Response(courses, status=status.HTTP_200_OK)      
 class SearchByTitleAndCategories(APIView):
@@ -1668,6 +1681,8 @@ class SearchByTitleAndCategories(APIView):
             returned_value = fetch_raw_courses(query, (category, f"%{title}%"))
             if isinstance(returned_value, Response):
                 return returned_value
+            elif isinstance(returned_value, list):
+                courses.append(returned_value)
             courses.append(returned_value[0])
         return Response(courses, status=status.HTTP_200_OK)      
 class GetSingleCourse(APIView):
@@ -1676,8 +1691,11 @@ class GetSingleCourse(APIView):
     def get(self, request, course_id):
         query = "SELECT * FROM course WHERE courseid = %s"
         courses = fetch_raw_courses(query, course_id)
+        print(courses)
         if isinstance(courses, Response):
             return courses
+        elif isinstance(courses, list) and len(courses) == 0:
+            return Response({"error": "course not found"}, status=status.HTTP_404_NOT_FOUND)
         req_course = courses[0][0]
         contests = fetch_contests(course_id)
         if isinstance(contests, Response):

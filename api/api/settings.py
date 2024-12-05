@@ -38,6 +38,7 @@ cloudinary.config(
   	api_secret = "KmY-OONy-SrjBwoCRYID3pGounQ"
 )
 
+
 # Application definition
 
 INSTALLED_APPS = [
