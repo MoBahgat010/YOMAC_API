@@ -545,17 +545,9 @@ class SignInInstructorView(APIView):
             (refresh, token) = GenerateTokens(instructor_data['id'], 'instructor')
             response = Response({
                 "token": token,
+                "role": "instructor",
                 "user_data": instructor_data
             })
-            response.set_cookie(
-                key="login_token",
-                value=refresh,
-                httponly=True,
-                samesite=None,
-                secure=False,
-                path='/',
-                max_age=90*24*60*60
-            )
             return response
         return Response({"error": "Invalid username or password"}, status=status.HTTP_401_UNAUTHORIZED)
 class SignInStudentView(APIView):
@@ -591,39 +583,22 @@ class SignInStudentView(APIView):
             (refresh, token) = GenerateTokens(student_data['id'], 'student')
             response = Response({
                 "token": token,
+                "role": "student",
                 "user_data": student_data
             })
-            response.set_cookie(
-                key="login_token",
-                value=refresh,
-                httponly=True,
-                samesite=None,
-                secure=False,
-                path='/',
-                max_age=90*24*60*60
-            )
             return response
         return Response({"error": "Invalid username or password"}, status=status.HTTP_401_UNAUTHORIZED)    
 class GenerateNewTokenView(APIView):
     authentication_classes = [CustomRefreshAuthentication]
     permission_classes = [AllowAny]
     def post(self, request):
-        print(request.auth)
         (refresh, token) = GenerateTokens(request.user['id'], request.auth)
         response = Response({
             "token": token,
+            "refresh": refresh,
             "user_data": request.user,
             "role": request.auth
         })
-        response.set_cookie(
-            key="login_token",
-            value=refresh,
-            httponly=True,
-            samesite=None,
-            secure=False,
-            path='/',
-            max_age=90*24*60*60
-        )
         return response
 class ResetPasswordView(APIView):
     authentication_classes = [CustomTokenAuthentication]

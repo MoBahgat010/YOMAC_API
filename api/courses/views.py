@@ -316,6 +316,22 @@ def fetch_quizzes(sections): #To remove
     return sections
 
 ################# Fetch Package #################
+def get_student_raw_data(student_id):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM Student WHERE StudentId = %s", (student_id,))
+        student_data_rows = cursor.fetchone()
+        student_data_columns = [col[0] for col in cursor.description]
+        student_data = dict(zip(student_data_columns, student_data_rows))
+        return student_data
+
+def get_instructor_raw_data(instructor_id):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM Instructor WHERE InstructorId = %s", (instructor_id,))
+        instructor_data_rows = cursor.fetchone()
+        instructor_data_columns = [col[0] for col in cursor.description]
+        instructor_data = dict(zip(instructor_data_columns, instructor_data_rows))
+        return instructor_data
+
 def fetch_contests(course_id):
     query = """
         SELECT * FROM ContestExam WHERE CourseID = %s AND ContestExamID NOT IN (
@@ -407,13 +423,15 @@ def fetch_single_video(videoId, student_id):
             if student_id is not None:
                 cursor.execute("""
                     SELECT v.*, COALESCE(vs.VideoProgress, 0) AS VideoProgress
-                    FROM Video AS v LEFT JOIN Video_Student AS vs
-                    ON v.VideoID = vs.VideoID
-                    WHERE vs.StudentID = %s AND vs.VideoId = %s;
+                    FROM Video AS v 
+                    LEFT JOIN Video_Student AS vs 
+                    ON v.VideoID = vs.VideoID AND vs.StudentID = %s 
+                    WHERE v.VideoID = %s;
                 """, (student_id, videoId))
             else:
                 cursor.execute("SELECT * FROM Video WHERE VideoId = %s", (videoId,))
             video_row = cursor.fetchone()
+            print(video_row)
             if video_row is None:
                 return Response({"error": "Video not found"}, status=status.HTTP_404_NOT_FOUND)
             video_columns = [col[0] for col in cursor.description]
@@ -877,7 +895,7 @@ def get_instructor_courses(instructor_id):
     if isinstance(returned_value, Response):
         return returned_value
     elif isinstance(returned_value, list):
-        top_instructor_courses = returned_value
+        non_top_instructor_courses = returned_value
     else:
         non_top_instructor_courses = returned_value[0]
     return (top_instructor_courses, non_top_instructor_courses)
@@ -1006,7 +1024,8 @@ class GetStudentCourses(APIView):
             return returned_value
         elif isinstance(returned_value, list):
             courses = returned_value
-        courses = returned_value[0]  
+        else:
+            courses = returned_value[0]  
         return Response(courses, status=status.HTTP_200_OK)
 
 # to edit to be eligible for instructor and student
@@ -1110,14 +1129,36 @@ class GetQAMessages(APIView):
                 question_rows = cursor.fetchall()
                 question_columns = [col[0] for col in cursor.description]
                 questions = [dict(zip(question_columns, row)) for row in question_rows]
+                
+                for i, question in enumerate(questions):
+                    if question['senderstudentid'] is not None:
+                        student_data = get_student_raw_data(question['senderstudentid'])
+                        del questions[i]['senderstudentid']
+                        questions[i]['senderstudent'] = student_data
+                    elif question['senderinstructorid'] is not None:
+                        instructor_data = get_instructor_raw_data(question['senderinstructorid'])
+                        del questions[i]['senderinstructorid']
+                        questions[i]['senderinstructor'] = instructor_data
 
                 cursor.execute(answers_query, (qaid, True))
                 answer_rows = cursor.fetchall()
                 answer_columns = [col[0] for col in cursor.description]
                 answers = [dict(zip(answer_columns, row)) for row in answer_rows]
+
+                for answer in answers:
+                    if answer['senderstudentid'] is not None:
+                        student_data = get_student_raw_data(answer['senderstudentid'])
+                        del answers[i]['senderstudentid']
+                        answers[i]['senderstudent'] = student_data
+                    elif answer['senderinstructorid'] is not None:
+                        instructor_data = get_instructor_raw_data(answer['senderinstructorid'])
+                        del answers[i]['senderinstructorid']
+                        answers[i]['senderinstructor'] = instructor_data
+
+
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"questions": questions[0], "answers": answers}, status=status.HTTP_200_OK)
+        return Response({"questions": questions, "answers": answers}, status=status.HTTP_200_OK)
 class GetVideoQA(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [AllowAny]
@@ -1135,6 +1176,15 @@ class GetVideoQA(APIView):
                 rows = cursor.fetchall()
                 columns = [col[0] for col in cursor.description]
                 messages = [dict(zip(columns, row)) for row in rows]
+                for i, message in enumerate(messages):
+                    if message['senderstudentid'] is not None:
+                        student_data = get_student_raw_data(message['senderstudentid'])
+                        del messages[i]['senderstudentid']
+                        messages[i]['senderstudent'] = student_data
+                    elif message['senderinstructorid'] is not None:
+                        instructor_data = get_instructor_raw_data(message['senderinstructorid'])
+                        del messages[i]['senderinstructorid']
+                        messages[i]['senderinstructor'] = instructor_data
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"qa_questions": messages}, status=status.HTTP_200_OK)

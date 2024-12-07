@@ -27,7 +27,7 @@ SECRET_KEY = 'django-insecure-3gchw9tw3hsf)5+5o0)mi854b1&d_0$&m1sn_$!_c_xlz9zf+g
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['yomac.azurewebsites.net', '127.0.0.1', 'localhost']
+ALLOWED_HOSTS = ['yomac.azurewebsites.net', '0321-197-52-187-28.ngrok-free.app', '127.0.0.1', 'localhost']
 
 import cloudinary
 import cloudinary.uploader
@@ -67,12 +67,15 @@ CORS_ALLOW_HEADERS = [
     'Authorization',
     'Content-Type',
     'X-Requested-With',
-    'token'  # Add custom headers like 'token'
+    'token',  # Add custom headers like 'token'
+    'refresh'
 ]
 
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173', # here is the domains that are allowed to use this api
 ]
+
+CSRF_TRUSTED_ORIGINS = ['https://yomac.azurewebsites.net', 'http://localhost:5173']
 
 CSRF_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_ALL_ORIGINS = True
@@ -94,11 +97,15 @@ CHANNEL_LAYERS = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=25),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=90),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=90),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
+
+    'AUTH_COOKIE_HTTP_ONLY': True,
+    'AUTH_COOKIE_SECURE': False,
+    'AUTH_COOKIE_SAMESITE': 'Lax',
 
     "ALGORITHM": "HS256",
     "SIGNING_KEY": SECRET_KEY,
