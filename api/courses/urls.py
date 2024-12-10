@@ -39,11 +39,13 @@ urlpatterns = [
     path("increase_student_balance/<str:amount>", IncreaseStudentBalanceView.as_view()),
     path("get_transactions", GetUserTransactions.as_view()),
     path("get_qa_messages/<str:qaid>", GetQAMessages.as_view()),
+    path("fetch_categories", FetchCategoriesView.as_view()),
+
     path("get_video_qa/<str:video_id>", GetVideoQA.as_view()),
     path("accept_whiteboard_item", AcceptWhiteBoardItemView.as_view()),
     path("reject_whiteboard_item", RejectWhiteBoardItemView.as_view()),
 
-    path("delete_qa", DeleteQAView.as_view()),
+    path("delete_qa/<str:qaid>", DeleteQAView.as_view()),
     path("edit_message", EditMessage.as_view()),
     path("delete_message", DeleteMessage.as_view()),
     
@@ -65,5 +67,4 @@ urlpatterns = [
 
     path("update_video_progress", UpdateStudentVideoProgress.as_view()),
     path("get_course_statistics/<str:course_id>", GetCourseStatistics.as_view()),
-
 ]

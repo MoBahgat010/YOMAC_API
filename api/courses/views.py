@@ -1028,6 +1028,21 @@ class GetStudentCourses(APIView):
             courses = returned_value[0]  
         return Response(courses, status=status.HTTP_200_OK)
 
+class FetchCategoriesView(APIView):
+    authentication_classes = [CustomTokenAuthentication]
+    permission_classes = [AllowAny]
+    def get(self, request):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM categories")
+                rows = cursor.fetchall()
+                columns = [col[0] for col in cursor.description]
+                categories = [dict(zip(columns, row)) for row in rows]
+                return Response(categories, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 # to edit to be eligible for instructor and student
 class GetStudentDataInCourseView(APIView):
     authentication_classes = [CustomTokenAuthentication]
@@ -1176,6 +1191,7 @@ class GetVideoQA(APIView):
                 rows = cursor.fetchall()
                 columns = [col[0] for col in cursor.description]
                 messages = [dict(zip(columns, row)) for row in rows]
+                print(message)
                 for i, message in enumerate(messages):
                     if message['senderstudentid'] is not None:
                         student_data = get_student_raw_data(message['senderstudentid'])
@@ -1196,7 +1212,6 @@ class DeleteQAView(APIView):
         try:
             with connection.cursor() as cursor:
                 cursor.execute("DELETE FROM QA WHERE QAID = %s;", (qaid,))
-                connection.commit()
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"message": "Question deleted"}, status=status.HTTP_200_OK)
@@ -1737,7 +1752,7 @@ class SearchByTitleAndCategories(APIView):
         return Response(courses, status=status.HTTP_200_OK)      
 class GetSingleCourse(APIView):
     authentication_classes = [CustomTokenAuthentication]
-    permission_classes = [IsStudent]
+    permission_classes = [AllowAny]
     def get(self, request, course_id):
         query = "SELECT * FROM course WHERE courseid = %s"
         courses = fetch_raw_courses(query, course_id)
