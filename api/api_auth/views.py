@@ -21,25 +21,22 @@ class ChangeDB(APIView):
     permission_classes = [AllowAny]
     def post(self, request):
         DROP_QUERY = """
-            -- Drop custom types first
-            DROP TYPE IF EXISTS AssignmentStatus CASCADE;
-            DROP TYPE IF EXISTS CourseStatus CASCADE;
-            DROP TYPE IF EXISTS ExamType CASCADE;
-
-            -- Drop tables in reverse order of creation to avoid dependency issues
+            -- Drop all tables in the correct order to avoid foreign key conflicts
             DROP TABLE IF EXISTS FeedBack_Reviews CASCADE;
             DROP TABLE IF EXISTS InstructorWhiteBoard CASCADE;
-            DROP TABLE IF EXISTS Statistics CASCADE;
             DROP TABLE IF EXISTS Transactions CASCADE;
             DROP TABLE IF EXISTS Student_Assignment CASCADE;
             DROP TABLE IF EXISTS CourseAnnouncements CASCADE;
             DROP TABLE IF EXISTS Assignment CASCADE;
             DROP TABLE IF EXISTS Questions CASCADE;
+            DROP TABLE IF EXISTS Student_Contest CASCADE;
             DROP TABLE IF EXISTS ContestExam CASCADE;
+            DROP TABLE IF EXISTS Student_Quiz CASCADE;
             DROP TABLE IF EXISTS QuizExam CASCADE;
             DROP TABLE IF EXISTS Messages CASCADE;
             DROP TABLE IF EXISTS Chat CASCADE;
             DROP TABLE IF EXISTS QA CASCADE;
+            DROP TABLE IF EXISTS Video_Student CASCADE;
             DROP TABLE IF EXISTS Video CASCADE;
             DROP TABLE IF EXISTS CourseSection CASCADE;
             DROP TABLE IF EXISTS Student_Course CASCADE;
@@ -48,7 +45,11 @@ class ChangeDB(APIView):
             DROP TABLE IF EXISTS Student CASCADE;
             DROP TABLE IF EXISTS Instructor CASCADE;
             DROP TABLE IF EXISTS Categories CASCADE;
-            DROP TABLE IF EXISTS Video_Student CASCADE;
+
+            -- Drop custom ENUM types
+            DROP TYPE IF EXISTS AssignmentStatus;
+            DROP TYPE IF EXISTS ExamType;
+            DROP TYPE IF EXISTS CourseStatus;
         """
         NEW_QUERY = """
             CREATE TABLE Categories (
@@ -61,7 +62,7 @@ class ChangeDB(APIView):
                 InstructorID BIGSERIAL PRIMARY KEY NOT NULL,
                 InstructorName VARCHAR(100) NOT NULL,
                 Email VARCHAR(127) UNIQUE NOT NULL CHECK (Email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
-                Username VARCHAR(255) UNIQUE NOT NULL,
+                    Username VARCHAR(255) UNIQUE NOT NULL,
                 Password VARCHAR(255) NOT NULL,
                 ProfilePic TEXT DEFAULT NULL,
                 BIO TEXT,
@@ -96,7 +97,6 @@ class ChangeDB(APIView):
                 Duration INTERVAL NOT NULL DEFAULT INTERVAL '0',
                 CreatedAt TIMESTAMP Default CURRENT_TIMESTAMP,
                 Price Decimal(8,2) CHECK (Price >= 0) NOT NULL,
-                Rating INT DEFAULT 0 CHECK (Rating >= 0 AND Rating <= 5),
                 Requirements TEXT[],
                 CourseImage TEXT DEFAULT NULL,
                 Certificate TEXT DEFAULT NULL --link of the certificate image
@@ -191,6 +191,14 @@ class ChangeDB(APIView):
                 CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE Student_Quiz (
+                QuizExamID INT REFERENCES QuizExam(QuizExamID) ON DELETE CASCADE,
+                StudentID INT REFERENCES Student(StudentID) ON DELETE CASCADE,
+                Pass BOOLEAN NOT NULL,
+                Grade DECIMAL(10, 2),
+                PRIMARY KEY (QuizExamID, StudentID)
+            );
+
             CREATE TABLE ContestExam (
                 ContestExamID BIGSERIAL PRIMARY KEY,
                 Title TEXT,
@@ -201,6 +209,16 @@ class ChangeDB(APIView):
                 TotalMarks DECIMAL(10, 2),
                 PassingMarks DECIMAL(10, 2),
                 CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE Student_Contest (
+                ContestExamID INT,
+                StudentID INT,
+                Pass BOOLEAN,
+                Grade DECIMAL(50,5),
+                PRIMARY KEY (ContestExamID, StudentID),
+                FOREIGN KEY (ContestExamID) REFERENCES ContestExam(ContestExamID) ON DELETE CASCADE,
+                FOREIGN KEY (StudentID) REFERENCES Student(StudentID) ON DELETE CASCADE
             );
 
             CREATE TABLE Questions (
@@ -255,14 +273,6 @@ class ChangeDB(APIView):
                 ExecutedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
-            -- CREATE TABLE Statistics (
-            -- 	CourseID INT REFERENCES Course(CourseID),
-            -- 	InstructorID INT REFERENCES Instructor(InstructorID),
-            -- 	StudentCount INT,
-            -- 	CompletionRate DECIMAL(4,2),
-            -- 	AverageGrades DECIMAL(10,2)
-            -- );
-
             CREATE TABLE InstructorWhiteBoard (
                 InstructorWhiteBoardID BIGSERIAL PRIMARY KEY,
                 InstructorID INT REFERENCES Instructor(InstructorID),
@@ -280,6 +290,7 @@ class ChangeDB(APIView):
             CREATE TABLE FeedBack_Reviews (
                 ReviewID BIGSERIAL PRIMARY KEY,
                 CourseID INT REFERENCES Course(CourseID),
+                StudentID INT REFERENCES Student(StudentID),
                 InstructorID INT REFERENCES Instructor(InstructorID),
                 Rating DECIMAL(3,2),
                 Review TEXT,

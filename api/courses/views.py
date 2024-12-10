@@ -52,36 +52,43 @@ def update_quiz(data):
     update_quiz_questions_query = """
         UPDATE Questions
         SET QuestionText = %s, Choices = %s, CorrectAnswerIndex = %s
-        WHERE QuizExamID = %s;
+        WHERE QuestionID = %s;
     """
     try:
         with connection.cursor() as cursor:
             cursor.execute(update_quiz_query, (title, convert_seconds_to_interval(quizDuration), totalMarks, passingMarks, quizID))
             for question in questions:
                 cursor.execute(update_quiz_questions_query, (question['text'], question['choices'],
-                    question['correct_answer_index'], quizID))
+                    question['correct_answer_index'], question["questionid"]))
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     return True
-def update_assignment(data, FILES):
+def update_assignment(data, FILES = None):
     assignmentID = data.get("assignmentID", None)
     title = data.get("title", None)
     description = data.get("description", None)
     maxMarks = data.get("maxMarks", None)
     passingMarks = data.get("passingMarks", None)
-    assignment_file = FILES.get("assignment_file", None)
-    if assignmentID is None or title is None or description is None or maxMarks is None or passingMarks is None or assignment_file is None:
+    message = "No file"
+    if assignmentID is None or title is None or description is None or maxMarks is None or passingMarks is None:
         return Response({"error": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
+    if FILES is not None:
+        assignment_file = FILES.get("assignment_file", None)
+        if assignment_file is None:
+            return Response({"error": "Assignment file is required"}, status=status.HTTP_400_BAD_REQUEST)
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT FileAttched FROM Assignment WHERE AssignmentID = %s", (assignmentID,))
             file_attached = cursor.fetchone()[0]
             new_file_url = file_attached
-            try:
-                upload_result = cloudinary.uploader.upload(assignment_file, resource_type="raw", public_id=file_attached, overwrite=True)
-                new_file_url = upload_result['secure_url']
-            except Exception as e:
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)          
+            if FILES is not None:
+                file_attached = extract_public_id(file_attached)
+                try:
+                    upload_result = cloudinary.uploader.upload(assignment_file, resource_type="raw", public_id=file_attached, overwrite=True)
+                    new_file_url = upload_result['secure_url']
+                    message = "File"
+                except Exception as e:
+                    return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)          
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     update_assignment_query = """
@@ -89,6 +96,7 @@ def update_assignment(data, FILES):
         SET Title = %s, Description = %s, MaxMarks = %s, PassingMarks = %s, FileAttched = %s
         WHERE AssignmentID = %s;
     """
+    print("message::::::::: ", message)
     try:
         with connection.cursor() as cursor:
             cursor.execute(update_assignment_query, (title, description, maxMarks, passingMarks, new_file_url, assignmentID))
@@ -126,6 +134,7 @@ def update_video(data):
     try:
         with connection.cursor() as cursor:
             cursor.execute(update_video_query, (video_title, new_video_url, videoID))
+            cursor.execute("DELETE FROM Video_Student WHERE VideoID = %s", (videoID,))
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     return True
@@ -151,14 +160,21 @@ def update_section(data, sectionID):
             returned_value = update_quiz(quiz)
             if isinstance(returned_value, Response):
                 return returned_value
+    assignments = data.get("assignments", [])
+    if len(assignments) > 0:
+        for assignment in assignments:
+            print("assignments: ", assignment)
+            returned_value = update_assignment(assignment)
+            if isinstance(returned_value, Response):
+                return returned_value
     print("question")
     # Update Videos #
-    videos = data.get("videos", None)
-    if videos is not None:
-        for video in videos:
-            returned_value = update_video(video)
-            if returned_value is not True:
-                return returned_value
+    # videos = data.get("videos", None)
+    # if videos is not None:
+    #     for video in videos:
+    #         returned_value = update_video(video)
+    #         if returned_value is not True:
+    #             return returned_value
     return True
 def create_contest(title, courseId, questions, quizDuration, totalMarks, passingMarks, user_id):
     # check is all data is not None
@@ -1104,7 +1120,7 @@ class StudentEnrollmentView(APIView):
     def post(self, request):
         courseID = request.data.get("courseID", None)
         return enroll_student_on_course(request.user['id'], courseID)
-    
+
 class AskInQAVideoView(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsStudent]
@@ -1191,7 +1207,6 @@ class GetVideoQA(APIView):
                 rows = cursor.fetchall()
                 columns = [col[0] for col in cursor.description]
                 messages = [dict(zip(columns, row)) for row in rows]
-                print(message)
                 for i, message in enumerate(messages):
                     if message['senderstudentid'] is not None:
                         student_data = get_student_raw_data(message['senderstudentid'])
@@ -1539,20 +1554,23 @@ class DeleteQuizView(APIView):
 class UpdateQuizView(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsInstructor]
-    def put(self, request, quizId):
-        quizzes = request.data.get("quizzes", [])
-        for quiz in quizzes:
-            returned_value = update_quiz(data=quiz, quizID=quiz.get("quizId", None))
-            if isinstance(returned_value, Response):
-                return returned_value
+    def put(self, request):
+        quiz = request.data.get("quiz", None)
+        if quiz is None:
+            return Response({"error": "Quiz data is missing"}, status=status.HTTP_400_BAD_REQUEST)
+        returned_value = update_quiz(data=quiz)
+        if isinstance(returned_value, Response):
+            return returned_value
         return Response({"message": "Quiz succesfully updated"}, status=status.HTTP_200_OK)
 class UpdateAssignment(APIView):
     authentication_classes = [CustomTokenAuthentication]
     permission_classes = [IsInstructor]
-    def put(self, request, assignmentId):
+    def put(self, request):
         data = request.data
-        FILES = request.FILES
-        returned_value = update_assignment(data=data, FILES=FILES, assignmentID=assignmentId)
+        if request.FILES:
+            returned_value = update_assignment(data=data, FILES=request.FILES)
+        else:
+            returned_value = update_assignment(data=data)
         if isinstance(returned_value, Response):
             return returned_value
         return Response({"message": "Assignment succesfully updated"}, status=status.HTTP_200_OK)
@@ -1568,6 +1586,92 @@ class GetVideoView(APIView):
         if isinstance(video, Response):
             return video
         return Response(video, status=status.HTTP_200_OK)
+
+class UpdateCourse(APIView):
+    authentication_classes = [CustomTokenAuthentication]
+    permission_classes = [IsInstructor]
+    def put(self, request):
+        course_id = request.data.get('courseId', None)
+        title = request.data.get('title', None)
+        description = request.data.get('description', None)
+        categoryID = request.data.get("categoryID", None)
+        seen_status = request.data.get("seen_status", None)
+        price = request.data.get("price", None)
+        requirements = request.data.get('requirements', [])
+        duration = request.data.get('duration', "0")
+        course_image = request.data.get('course_image', None)
+        certificate = request.data.get('certificate', None)
+        sections = request.data.get('sections', [])
+        if course_id is None or title is None or description is None or categoryID is None or seen_status is None or price is None or requirements is None or duration is None:
+            return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+        (top_instructor_id,_) = fetch_top_instructor_by_course(course_id)
+        if top_instructor_id == request.user["id"]:
+            update_query = """
+                UPDATE Course
+                SET 
+                    Title = %s,
+                    Description = %s,
+                    TopInstructorID = %s,
+                    CategoryID = %s,
+                    SeenStatus = %s,
+                    Duration = %s,
+                    Price = %s,
+                    Requirements = %s
+                WHERE
+                    CourseID = %s;
+            """
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(update_query, (title, description, request.user["id"],
+                        categoryID, seen_status, convert_seconds_to_interval(duration), price, requirements, course_id))
+            except Exception as e:
+                return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            if course_image is not None:
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT courseimage FROM course WHERE courseid = %s", (course_id,))
+                        image = cursor.fetchone()
+                        if image is None:  # Handle case where no course image is found
+                            return Response({"error": "Course image not found for the given course ID."}, status=status.HTTP_404_NOT_FOUND)
+                        image_public_id = extract_public_id(image[0])
+                        course_image_file = decode_base64_to_file(course_image)
+                        upload_result = cloudinary.uploader.upload(course_image_file, public_id=image_public_id)
+                        image_url = upload_result['secure_url']
+                        query = """
+                            UPDATE course
+                            SET courseimage = %s
+                            WHERE courseid = %s;
+                        """ 
+                        cursor.execute(query, (image_url, course_id))
+                except Exception as e:
+                    return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            if certificate is not None:
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT certificate FROM course WHERE courseid = %s", (course_id,))
+                        image = cursor.fetchone()
+                        if image is None:  # Handle case where no course image is found
+                            return Response({"error": "Course certificate not found for the given course ID."}, status=status.HTTP_404_NOT_FOUND)
+                        image_public_id = extract_public_id(image[0])
+                        certificate_file = decode_base64_to_file(certificate)
+                        upload_result = cloudinary.uploader.upload(certificate_file, public_id=image_public_id)
+                        image_url = upload_result['secure_url']
+                        query = """
+                            UPDATE course
+                            SET certificate = %s
+                            WHERE courseid = %s;
+                        """
+                        cursor.execute(query, (image_url, course_id))
+                except Exception as e:
+                    return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            for section in sections:
+                sectionId = section.get("sectionId", None)
+                returned_value = update_section(data=section, sectionID=sectionId)
+                if isinstance(returned_value, Response):
+                    return returned_value
+            return Response({"message": "Course updated successfully"},status=status.HTTP_200_OK)
+        else:
+            return Response({"error": "You are not the top instructor of this course"}, status=status.HTTP_403_FORBIDDEN)
 
 class UpdateVideo(APIView):
     authentication_classes = [CustomTokenAuthentication]

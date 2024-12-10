@@ -18,10 +18,12 @@ urlpatterns = [
     path('get_single_course/<str:course_id>', GetSingleCourse.as_view()),
     path('get_quiz_exam/<str:quizID>', GetQuizExamView.as_view()),
     path("update_quiz", UpdateQuizView.as_view()),
-    path("update_assignment/<str:assignmentId>", UpdateAssignment.as_view()),
+    path("update_assignment", UpdateAssignment.as_view()),
     path("update_video", UpdateVideo.as_view()),
     path("get_video/<str:video_id>", GetVideoView.as_view()),
     path("update_section", UpdateSectionView.as_view()),
+    path("update_course", UpdateCourse.as_view()),
+
     path("add_video", AddVideo.as_view()),
     path("add_section", AddSectionsView.as_view()),
     path("make_contest", MakeContest.as_view()),

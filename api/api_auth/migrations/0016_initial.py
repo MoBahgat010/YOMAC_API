@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
                     InstructorID BIGSERIAL PRIMARY KEY NOT NULL,
                     InstructorName VARCHAR(100) NOT NULL,
                     Email VARCHAR(127) UNIQUE NOT NULL CHECK (Email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
-                    Username VARCHAR(255) UNIQUE NOT NULL,
+                        Username VARCHAR(255) UNIQUE NOT NULL,
                     Password VARCHAR(255) NOT NULL,
                     ProfilePic TEXT DEFAULT NULL,
                     BIO TEXT,
@@ -51,7 +51,6 @@ class Migration(migrations.Migration):
                     Duration INTERVAL NOT NULL DEFAULT INTERVAL '0',
                     CreatedAt TIMESTAMP Default CURRENT_TIMESTAMP,
                     Price Decimal(8,2) CHECK (Price >= 0) NOT NULL,
-                    Rating INT DEFAULT 0 CHECK (Rating >= 0 AND Rating <= 5),
                     Requirements TEXT[],
                     CourseImage TEXT DEFAULT NULL,
                     Certificate TEXT DEFAULT NULL --link of the certificate image
@@ -96,7 +95,8 @@ class Migration(migrations.Migration):
                 CREATE TABLE Video_Student (
                     VideoID INT REFERENCES Video(VideoID) ON DELETE CASCADE,
                     StudentID INT REFERENCES Student(StudentID) ON DELETE CASCADE,
-                    VideoProgress DECIMAL(4,2) CHECK (VideoProgress >= 0 AND VideoProgress <= 100),
+                    CourseID INT REFERENCES Course(CourseID) ON DELETE CASCADE,
+                    VideoProgress DECIMAL(5,2) CHECK (VideoProgress >= 0 AND VideoProgress <= 100) DEFAULT 0,
                     CreatedAt TIMESTAMP Default CURRENT_TIMESTAMP,
                     PRIMARY KEY (VideoID, StudentID)
                 );
@@ -145,6 +145,14 @@ class Migration(migrations.Migration):
                     CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE TABLE Student_Quiz (
+                    QuizExamID INT REFERENCES QuizExam(QuizExamID) ON DELETE CASCADE,
+                    StudentID INT REFERENCES Student(StudentID) ON DELETE CASCADE,
+                    Pass BOOLEAN NOT NULL,
+                    Grade DECIMAL(10, 2),
+                    PRIMARY KEY (QuizExamID, StudentID)
+                );
+
                 CREATE TABLE ContestExam (
                     ContestExamID BIGSERIAL PRIMARY KEY,
                     Title TEXT,
@@ -155,6 +163,16 @@ class Migration(migrations.Migration):
                     TotalMarks DECIMAL(10, 2),
                     PassingMarks DECIMAL(10, 2),
                     CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE Student_Contest (
+                    ContestExamID INT,
+                    StudentID INT,
+                    Pass BOOLEAN,
+                    Grade DECIMAL(50,5),
+                    PRIMARY KEY (ContestExamID, StudentID),
+                    FOREIGN KEY (ContestExamID) REFERENCES ContestExam(ContestExamID) ON DELETE CASCADE,
+                    FOREIGN KEY (StudentID) REFERENCES Student(StudentID) ON DELETE CASCADE
                 );
 
                 CREATE TABLE Questions (
@@ -209,14 +227,6 @@ class Migration(migrations.Migration):
                     ExecutedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
-                -- CREATE TABLE Statistics (
-                -- 	CourseID INT REFERENCES Course(CourseID),
-                -- 	InstructorID INT REFERENCES Instructor(InstructorID),
-                -- 	StudentCount INT,
-                -- 	CompletionRate DECIMAL(4,2),
-                -- 	AverageGrades DECIMAL(10,2)
-                -- );
-
                 CREATE TABLE InstructorWhiteBoard (
                     InstructorWhiteBoardID BIGSERIAL PRIMARY KEY,
                     InstructorID INT REFERENCES Instructor(InstructorID),
@@ -234,6 +244,7 @@ class Migration(migrations.Migration):
                 CREATE TABLE FeedBack_Reviews (
                     ReviewID BIGSERIAL PRIMARY KEY,
                     CourseID INT REFERENCES Course(CourseID),
+                    StudentID INT REFERENCES Student(StudentID),
                     InstructorID INT REFERENCES Instructor(InstructorID),
                     Rating DECIMAL(3,2),
                     Review TEXT,
